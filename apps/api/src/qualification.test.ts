@@ -46,9 +46,42 @@ describe("Groq qualification assessment", () => {
 
     const result = await assessQualification(input, baseline);
     expect(result.score).toBe(82);
+    expect(result.band).toBe("LOW");
     expect(result.nextAction).toBe("Short sales call");
     const request = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(JSON.stringify(request)).not.toContain("consumerNumber");
+  });
+
+  it("keeps a low-use homeowner in the low band despite a high AI score", async () => {
+    process.env.GROQ_API_KEY = "test-key";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    score: 92,
+                    reasons: ["Low monthly usage"],
+                    nextAction: "Book a roof survey",
+                  }),
+                },
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+
+    const result = await assessQualification(
+      { ...input, ownerType: "OWNER", monthlyUnits: 85 },
+      { ...baseline, nextAction: "Short sales call" },
+    );
+    expect(result.band).toBe("LOW");
+    expect(result.nextAction).toBe("Short sales call");
   });
 
   it("fails rather than inventing an assessment without credentials", async () => {

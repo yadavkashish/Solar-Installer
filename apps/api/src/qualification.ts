@@ -80,11 +80,13 @@ export async function assessQualification(
     (input.roofArea ?? 0) < 25 ||
     baseline.nextAction === "Short sales call";
   const score = Math.min(100, Math.max(0, parsed.data.score));
+  const mustLowBand =
+    input.ownerType === "TENANT" || (input.monthlyUnits ?? 0) < 200;
   return {
     source: "groq-assisted; deterministic guardrails applied",
     model,
     score,
-    band: bandFor(score),
+    band: mustLowBand ? "LOW" : bandFor(score),
     reasons: parsed.data.reasons,
     nextAction: mustShortCall ? "Short sales call" : parsed.data.nextAction,
     assessedAt: new Date(),

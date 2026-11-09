@@ -3,7 +3,7 @@ import "./env.js";
 import { PrismaClient } from "@prisma/client";
 import argon2 from "argon2";
 import { z } from "zod";
-import { calculate, recommend, score, sizing } from "./engine.js";
+import { calculate, recommend, recommendForLead, score, sizing } from "./engine.js";
 import { requiresActivation } from "./account-activation.js";
 import {
   normaliseStageId,
@@ -248,7 +248,11 @@ export async function findLead(id: string) {
 export async function createLead(data: any, ownerId: string) {
   const id = "LD-" + Math.floor(31000 + Math.random() * 800);
   const baseline = score(data);
-  const recommendation = recommend(data.monthlyUnits, data.roofArea);
+  const recommendation = recommendForLead(
+    data.ownerType,
+    data.monthlyUnits,
+    data.roofArea,
+  );
   const lead = await db.lead.create({
     data: {
       ...data,
@@ -282,7 +286,11 @@ export async function createSalesLead(
   activationOrigin: string | null,
 ) {
   const baseline = score(data);
-  const recommendation = recommend(data.monthlyUnits, data.roofArea);
+  const recommendation = recommendForLead(
+    data.ownerType,
+    data.monthlyUnits,
+    data.roofArea,
+  );
   const id = "LD-" + Math.floor(31000 + Math.random() * 800);
   const provisionalPasswordHash = await argon2.hash(
     crypto.randomBytes(32).toString("base64url"),

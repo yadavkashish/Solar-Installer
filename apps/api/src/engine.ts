@@ -85,7 +85,14 @@ export function score(lead: {
   if (!lead.tariff) {
     reasons.push("Tariff is missing; assessment needs review.");
   }
-  const band = points >= 65 ? "HIGH" : points >= 35 ? "MEDIUM" : "LOW";
+  const band =
+    lead.ownerType === "TENANT" || (lead.monthlyUnits ?? 0) < 200
+      ? "LOW"
+      : points >= 65
+        ? "HIGH"
+        : points >= 35
+          ? "MEDIUM"
+          : "LOW";
   return {
     points,
     band,
@@ -150,4 +157,16 @@ export function recommend(units: number | null, roof: number | null) {
     kw: recommendedKw,
     note: "Preliminary size from 1,400 units/kW/year. Survey may change it.",
   };
+}
+export function recommendForLead(
+  ownerType: string,
+  units: number | null,
+  roof: number | null,
+) {
+  if (ownerType === "TENANT")
+    return {
+      kw: null,
+      note: "Confirm the property owner's decision before sizing a system.",
+    };
+  return recommend(units, roof);
 }

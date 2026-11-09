@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { calculate, recommend, sizing, subsidy } from "./engine.js";
+import {
+  calculate,
+  recommend,
+  recommendForLead,
+  score,
+  sizing,
+  subsidy,
+} from "./engine.js";
 
 describe("quote engine", () => {
   it("caps residential subsidy", () => expect(subsidy(5, true).amount).toBe(78000));
@@ -36,4 +43,21 @@ describe("quote engine", () => {
       roofLimitedKw: 0.5,
       recommendedKw: 0.5,
     }));
+  it("keeps tenants low readiness without sizing before owner consent", () => {
+    const lead = { ownerType: "TENANT", monthlyUnits: 210, roofArea: 40 };
+    expect(score(lead).band).toBe("LOW");
+    expect(score(lead).nextAction).toBe("Short sales call");
+    expect(recommendForLead("TENANT", 210, 40).kw).toBeNull();
+  });
+  it("keeps a small monthly bill in the low band with a 1 kW estimate", () => {
+    const lead = { ownerType: "OWNER", monthlyUnits: 85, roofArea: 40 };
+    expect(score(lead).band).toBe("LOW");
+    expect(score(lead).nextAction).toBe("Short sales call");
+    expect(recommendForLead("OWNER", 85, 40).kw).toBe(1);
+  });
+  it("keeps a typical homeowner in the high band with a 3 kW estimate", () => {
+    const lead = { ownerType: "OWNER", monthlyUnits: 340, roofArea: 40 };
+    expect(score(lead).band).toBe("HIGH");
+    expect(recommendForLead("OWNER", 340, 40).kw).toBe(3);
+  });
 });
