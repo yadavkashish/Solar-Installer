@@ -440,13 +440,18 @@ type QuoteCalculation = {
   paybackYears: number | null;
   assumptions: { subsidyNote: string };
 };
-type QuoteView = { id: string; calculation: QuoteCalculation };
+type QuoteView = {
+  id: string;
+  createdAt: string;
+  calculation: QuoteCalculation;
+};
 const quoteView = (value: unknown): QuoteView | null => {
   const q = value as any,
     c = q?.calculation;
   if (
     !q ||
     typeof q.id !== "string" ||
+    typeof q.createdAt !== "string" ||
     !c ||
     ![
       "capacityKw",
@@ -464,9 +469,11 @@ const quoteView = (value: unknown): QuoteView | null => {
 function Quote({
   q,
   onSessionExpired,
+  t,
 }: {
   q: any;
   onSessionExpired: () => void;
+  t: Translation;
 }) {
   const quote = quoteView(q);
   const [busy, setBusy] = useState(false),
@@ -526,9 +533,9 @@ function Quote({
         Simple payback <b>{c.paybackYears ?? "N/A"} years</b>
       </p>
       <button className="primary" disabled={busy} onClick={downloadPdf}>
-        {busy ? "Preparing PDF…" : "Download quote PDF"}
+        {busy ? "Preparing PDF…" : t.downloadQuotePdf}
       </button>
-      {error && <p className="error">{error}</p>}
+      {error && <p className="error" role="alert">{error}</p>}
       <small>
         {c.assumptions.subsidyNote} Subsidy eligibility and savings require
         policy and site review; neither is guaranteed.
@@ -540,10 +547,12 @@ function SurveyForm({
   lead,
   onSaved,
   onSessionExpired,
+  t,
 }: {
   lead: any;
   onSaved: (lead: any) => void;
   onSessionExpired: () => void;
+  t: Translation;
 }) {
   const [usableRoofArea, setUsableRoofArea] = useState(
     lead.survey?.usableRoofArea?.toString() ?? "",
@@ -551,27 +560,38 @@ function SurveyForm({
   const [findings, setFindings] = useState(lead.survey?.findings ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [savedAt, setSavedAt] = useState<string | null>(
+    lead.survey?.updatedAt ?? null,
+  );
   useEffect(() => {
     setUsableRoofArea(lead.survey?.usableRoofArea?.toString() ?? "");
     setFindings(lead.survey?.findings ?? "");
+    setSavedAt(lead.survey?.updatedAt ?? null);
   }, [lead.id, lead.survey?.updatedAt]);
+  const isDirty =
+    usableRoofArea !== (lead.survey?.usableRoofArea?.toString() ?? "") ||
+    findings !== (lead.survey?.findings ?? "");
   const save = async (event: FormEvent) => {
     event.preventDefault();
     setBusy(true);
     setError("");
     try {
-      onSaved(
-        await api("/leads/" + lead.id + "/survey", {
-          method: "PUT",
-          body: JSON.stringify({
-            usableRoofArea,
-            findings: findings.trim() || null,
-          }),
+      const updated = await api("/leads/" + lead.id + "/survey", {
+        method: "PUT",
+        body: JSON.stringify({
+          usableRoofArea,
+          findings: findings.trim() || null,
         }),
+      });
+      onSaved(updated);
+      setSavedAt(
+        typeof updated?.survey?.updatedAt === "string"
+          ? updated.survey.updatedAt
+          : null,
       );
     } catch (e: any) {
       if (e instanceof SessionExpired) onSessionExpired();
-      else setError(e.message || "Survey findings could not be saved.");
+      else setError(e.message || t.surveySaveFailed);
     } finally {
       setBusy(false);
     }
@@ -592,7 +612,10 @@ function SurveyForm({
             step="0.5"
             type="number"
             value={usableRoofArea}
-            onChange={(event) => setUsableRoofArea(event.target.value)}
+            onChange={(event) => {
+              setUsableRoofArea(event.target.value);
+              setError("");
+            }}
           />
         </label>
         <label>
@@ -600,12 +623,20 @@ function SurveyForm({
           <textarea
             maxLength={1000}
             value={findings}
-            onChange={(event) => setFindings(event.target.value)}
+            onChange={(event) => {
+              setFindings(event.target.value);
+              setError("");
+            }}
           />
         </label>
-        {error && <p className="error">{error}</p>}
-        <button className="primary" disabled={busy}>
-          {busy ? "Saving survey…" : "Save survey findings"}
+        {error && <p className="error" role="alert">{error}</p>}
+        {!isDirty && savedAt && (
+          <p className="success" role="status" aria-live="polite">
+            {t.surveySaved} · {new Date(savedAt).toLocaleString()}
+          </p>
+        )}
+        <button className="primary" disabled={busy || !isDirty}>
+          {busy ? t.savingSurvey : t.saveSurvey}
         </button>
       </form>
     </article>
@@ -795,6 +826,7 @@ function Detail({
     [kw, setKw] = useState(suggestedCapacity(x)),
     [quoteBusy, setQuoteBusy] = useState(false),
     [quoteError, setQuoteError] = useState(""),
+    [issuedQuote, setIssuedQuote] = useState<QuoteView | null>(null),
     [stageBusy, setStageBusy] = useState(false),
     [stageError, setStageError] = useState(""),
     qc = useQueryClient();
@@ -802,6 +834,9 @@ function Detail({
     setL(x);
     setKw(suggestedCapacity(x));
   }, [x]);
+  useEffect(() => {
+    setIssuedQuote(null);
+  }, [x.id]);
   const issue = async () => {
     setQuoteBusy(true);
     setQuoteError("");
@@ -810,18 +845,20 @@ function Detail({
         method: "POST",
         body: JSON.stringify({ kw }),
       });
-      if (!quoteView(q))
+      const savedQuote = quoteView(q);
+      if (!savedQuote)
         throw Error(
           "The saved quote response was invalid. No quote was displayed.",
         );
-      setL({ ...l, quote: q });
+      setL({ ...l, quote: savedQuote });
+      setIssuedQuote(savedQuote);
       qc.invalidateQueries({ queryKey: ["leads"] });
     } catch (e: any) {
       if (e instanceof SessionExpired) {
         onSessionExpired();
         return;
       }
-      setQuoteError(e.message || "Quote could not be issued.");
+      setQuoteError(e.message || t.quoteIssueFailed);
     } finally {
       setQuoteBusy(false);
     }
@@ -974,6 +1011,7 @@ function Detail({
             <SurveyForm
               lead={l}
               onSessionExpired={onSessionExpired}
+              t={t}
               onSaved={(updated) => {
                 setL(updated);
                 setKw(updated.surveyedSizing?.recommendedKw ?? kw);
@@ -1001,9 +1039,26 @@ function Detail({
               immutable snapshot.
             </p>
             <button className="primary" disabled={quoteBusy} onClick={issue}>
-              {quoteBusy ? t.saving : t.issueQuote}
+              {quoteBusy
+                ? t.issuingQuote
+                : l.quote
+                  ? t.createRevisedQuote
+                  : t.issueQuote}
             </button>
-            {quoteError && <p className="error">{quoteError}</p>}
+            {l.quote && (
+              <p>
+                Creating a revision issues a new immutable snapshot; the
+                previous quote remains preserved.
+              </p>
+            )}
+            {issuedQuote && (
+              <p className="success" role="status" aria-live="polite">
+                {t.quoteIssued} · {issuedQuote.id} ·{" "}
+                {issuedQuote.calculation.capacityKw} kW ·{" "}
+                {new Date(issuedQuote.createdAt).toLocaleString()}
+              </p>
+            )}
+            {quoteError && <p className="error" role="alert">{quoteError}</p>}
           </article>
           ) : role === "SALES" ? (
             <article className="card"><h2>Survey required before quote</h2><p>Save usable roof area above to calculate a post-survey quote. Existing issued quote snapshots remain unchanged.</p></article>
@@ -1011,7 +1066,7 @@ function Detail({
             <article className="card"><h2>{t.quote}</h2><p>Sales prepares post-survey quotes. Any saved quote remains available beside this message.</p></article>
           )}
           {l.quote ? (
-            <Quote q={l.quote} onSessionExpired={onSessionExpired} />
+            <Quote q={l.quote} onSessionExpired={onSessionExpired} t={t} />
           ) : (
             <article className="card">
               <h2>No saved quote</h2>

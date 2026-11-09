@@ -248,6 +248,9 @@ code {
 .error {
   color: #b23c2c;
 }
+.success {
+  color: #286149;
+}
 @media (max-width: 700px) {
   header {
     padding: 0 13px;

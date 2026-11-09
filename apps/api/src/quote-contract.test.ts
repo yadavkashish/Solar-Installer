@@ -30,15 +30,20 @@ describe("saved quote response", () => {
     expect(quote ? quoteView(quote) : null).toBeNull();
   });
   it("maps the persisted snapshot to the UI quote contract", () => {
+    const createdAt = new Date("2026-11-09T10:00:00.000Z");
     expect(
       quoteView({
         id: "Q-test",
         leadId: "LD-test",
         version: 1,
-        createdAt: new Date(),
+        createdAt,
         snapshot,
       }),
-    ).toMatchObject({ id: "Q-test", calculation: { capacityKw: 3 } });
+    ).toMatchObject({
+      id: "Q-test",
+      createdAt,
+      calculation: { capacityKw: 3 },
+    });
   });
   it("keeps post-survey sizing in a new issued snapshot", () => {
     expect(
