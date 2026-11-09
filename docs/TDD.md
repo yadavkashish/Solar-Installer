@@ -83,9 +83,9 @@ The implementation applies data minimization to qualification and should be trea
 
 ## Business case and tradeoffs
 
-- **Assumption (client brief):** the business case describes ₹86.88 lakh/year in avoidable problem cost. The underlying counts, unit costs and calculation were not present in the repository, so this figure is reported from the brief and has not been independently recomputed.
+- **Assumption (client brief), recomputed here:** 40% × 220 = 88 surveys; 88 × 2,500 × 12 = 26.4 lakh; 4% × 350 = 14 leads; 14 × 36,000 × 12 = 60.48 lakh (36,000 = 18% of 2 lakh); total 86.88 lakh.
 - **Assumption (client success target):** reduce unqualified surveys from 40% to under 15%. The prototype's heuristic is intended to route more cases to a short call, not reject them; no production baseline or measured improvement is available.
-- **Assumption (client success target):** issue same-day quotes for 90% of qualified leads. The snapshot flow supports a faster, repeatable quote, but actual turnaround and achievement of the target have not been measured.
+- **Assumption (client success target):** issue same-day quotes for 90% of surveys. The snapshot flow supports a faster, repeatable quote, but actual turnaround and achievement of the target have not been measured.
 
 Tradeoff: use explainable deterministic guardrails and immutable rule snapshots rather than an opaque model or live subsidy integration. This is easier to review and safer for estimates, but requires staff to maintain dated rules and does not prove business impact. External provider calls improve convenience but introduce availability, latency, privacy and cost dependencies; manual entry is retained as a fallback.
 
@@ -110,7 +110,7 @@ Latest local code checks:
 
 The local database-backed seed, login, repeat-seed execution, full workflow and screenshots remain unverified because this environment has no local PostgreSQL service. The seed script defaults to loopback databases and requires a one-invocation explicit override for remote seeding; no migration or seed was run against production.
 
-**Deployment status:** Code verified live at 3fbff3b; later commits are documentation-only. At that recorded check, this was true of the commits since the verified source; the current change set includes seed/generator code and is not verified live. Do not treat current HEAD as deployed unless the maintainer confirms a new deployment.
+Verified live at commit 3fbff3b. Later commits add seed, generator and documentation changes and have not been verified live.
 
 ## Assumptions
 
