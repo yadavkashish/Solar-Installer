@@ -4,6 +4,7 @@ import { PrismaClient } from "@prisma/client";
 import argon2 from "argon2";
 import { z } from "zod";
 import { calculate, recommend, score, sizing } from "./engine.js";
+import { requiresActivation } from "./account-activation.js";
 import {
   normaliseStageId,
   PROJECT_STAGES,
@@ -14,6 +15,13 @@ import {
 export const db = new PrismaClient();
 export class RuleConfigurationError extends Error {}
 export class LeadOwnershipError extends Error {}
+export class HomeownerActivationRequiredError extends Error {
+  constructor() {
+    super(
+      "Configure PUBLIC_ORIGIN or WEB_ORIGIN before provisioning a homeowner account.",
+    );
+  }
+}
 export class SurveyRequiredError extends Error {}
 export class SurveyCapacityError extends Error {}
 export class ProjectTransitionError extends Error {
@@ -268,32 +276,53 @@ export async function createLead(data: any, ownerId: string) {
  * to a HOMEOWNER record (an existing one by email, or a provisioned customer
  * record) and separately records the staff member who created it.
  */
-export async function createSalesLead(data: any, salesUserId: string) {
+export async function createSalesLead(
+  data: any,
+  salesUserId: string,
+  activationOrigin: string | null,
+) {
   const baseline = score(data);
   const recommendation = recommend(data.monthlyUnits, data.roofArea);
   const id = "LD-" + Math.floor(31000 + Math.random() * 800);
   const provisionalPasswordHash = await argon2.hash(
     crypto.randomBytes(32).toString("base64url"),
   );
-  const lead = await db.$transaction(async (tx) => {
+  const result = await db.$transaction(async (tx) => {
     const existing = await tx.user.findUnique({ where: { email: data.email } });
     if (existing && existing.role !== "HOMEOWNER")
       throw new LeadOwnershipError(
         "A sales account cannot be used as the homeowner for a customer lead.",
       );
-    const homeowner =
-      existing ??
-      (await tx.user.create({
+    const needsActivation = requiresActivation(existing);
+    if (needsActivation && !activationOrigin)
+      throw new HomeownerActivationRequiredError();
+    const activationToken = needsActivation
+      ? crypto.randomBytes(32).toString("base64url")
+      : null;
+    const activationTokenHash = activationToken
+      ? crypto.createHash("sha256").update(activationToken).digest("hex")
+      : null;
+    const homeowner = !existing
+      ? await tx.user.create({
         data: {
           email: data.email,
           name: data.name,
           role: "HOMEOWNER",
-          // This is a non-disclosed, random placeholder: it cannot be used as
-          // a staff password or exposed through the API.
           passwordHash: provisionalPasswordHash,
+          activationTokenHash,
+          activationExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         },
-      }));
-    return tx.lead.create({
+      })
+      : activationToken
+        ? await tx.user.update({
+            where: { id: existing.id },
+            data: {
+              activationTokenHash,
+              activationExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+            },
+          })
+        : existing;
+    const lead = await tx.lead.create({
       data: {
         ...data,
         id,
@@ -321,8 +350,9 @@ export async function createSalesLead(data: any, salesUserId: string) {
       },
       include: includeLead,
     });
+    return { lead, activationToken };
   });
-  return asLead(lead);
+  return { ...asLead(result.lead), activationToken: result.activationToken };
 }
 export async function persistQuote(leadId: string, kw: number) {
   return db.$transaction(async (tx) => {

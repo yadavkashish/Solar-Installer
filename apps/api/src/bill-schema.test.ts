@@ -33,6 +33,19 @@ describe("bill confirmation validation", () => {
     ).toBe(false);
   });
 
+  it("does not coerce a null monthly bill into zero", () => {
+      expect(
+        billConfirmationSchema.safeParse({
+          consumerNumber: "001234567890",
+          tariff: "LT-I Residential",
+          sanctionedLoad: 3,
+          sanctionedLoadUnit: "kW",
+          monthlyUnits: 340,
+          monthlyBill: null,
+        }).success,
+      ).toBe(false);
+  });
+
   it("normalises the legacy extraction billAmount key on read", () => {
     expect(
       normaliseBillExtraction({

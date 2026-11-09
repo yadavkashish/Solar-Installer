@@ -4,7 +4,7 @@
 
 **Live application:** https://solar-installer.onrender.com
 
-**Deployed release reference:** `09fb513527b753393744dee4ac19789c1f80026e` — *Improve survey and quote submission feedback* (09 Nov 2026).
+**Deployment status:** verify the running source revision through `GET /api/version`, which reports Render's `RENDER_GIT_COMMIT`. A healthy URL alone is not treated as commit verification.
 
 ## Purpose and scope
 
@@ -20,11 +20,11 @@ The primary flow is: intake → protected JPEG/PNG bill upload → optional AI e
 
 PostgreSQL persists Argon2-hashed users, database-backed sessions, customer-owned leads, sales-creation provenance, private bill metadata, original extraction JSON, confirmed bill JSON, qualification assessments, rule sets, surveys, immutable quote versions, projects, stage events, mock notification events, audit events, and hashes of customer status tokens.
 
-New intake requires a six-digit pincode, owner/tenant relationship, roof type, roof area, monthly bill, and a bill image. Pincode remains nullable for legacy records; the migration does not invent historic values. A sales-created lead is owned by an existing or provisioned homeowner, while `createdBy` records the sales user separately.
+New intake requires a six-digit pincode, owner/tenant relationship, roof type, roof area, monthly bill, and a bill image. Pincode remains nullable for legacy records; the migration does not invent historic values. A sales-created lead is owned by an existing or provisioned homeowner, while `createdBy` records the sales user separately. A newly provisioned homeowner cannot sign in until they redeem a one-time activation link; there is no automatic activation email.
 
 ## Authentication, authorisation and privacy
 
-Passwords use Argon2. Sessions are server-managed, expire/revoke in PostgreSQL, and use HttpOnly cookies. Cookie-authenticated mutations require CSRF validation. Leads, bills, quotes and PDFs use database relationship checks: homeowners see only their own records; quote issue, survey, stage change and customer-link administration are sales actions. Unauthorised API access receives an error rather than application data.
+Passwords use Argon2. Sessions are server-managed, expire/revoke in PostgreSQL, and use HttpOnly cookies. Cookie-authenticated mutations require CSRF validation. Pending provisioned accounts are denied sign-in until activation; sales sees the one-time link only in the authenticated creation response and must relay it securely. Leads, bills, quotes and PDFs use database relationship checks: homeowners see only their own records; quote issue, survey, stage change and customer-link administration are sales actions. Unauthorised API access receives an error rather than application data.
 
 Bill files are memory-buffer validated by MIME, size and signature before authenticated Cloudinary upload. Metadata records Cloudinary’s returned public ID, resource/delivery type, format, size and lead ownership. Preview/download is authorised server-side and returned as an explicitly expiring private link. A metadata write failure triggers asset cleanup. Customer status tokens are cryptographically random, stored only as hashes, scoped to a project, expiring and revocable; their public response excludes bills, consumer numbers, private URLs and staff notes.
 
@@ -38,7 +38,7 @@ After human confirmation, Groq qualification receives only ownership, roof data,
 
 At issue time, the API selects one effective PRICE, GENERATION and SUBSIDY rule from PostgreSQL. Effective starts are inclusive and ends exclusive; gaps or overlaps reject issuance. Quote issue is transactional and creates a new immutable version; it never changes a previous snapshot. The snapshot drives the PDF, including capacity, annual generation, issue time, rule effective date, assumptions, and estimate disclaimers.
 
-Current synthetic assumptions are INR 65,000/kW, 1,400 units/kW/year, 80% self-consumption, and INR 8/unit. Residential subsidy is estimated as INR 30,000/kW for the first two whole kW plus INR 18,000 for the third, capped at INR 78,000; commercial eligibility is review-required. These are seeded demo rules, not current policy commitments. Consumption-based capacity and roof-limited capacity are shown separately; a saved sales survey supplies usable roof area for the post-survey recommendation.
+Current synthetic assumptions are INR 65,000/kW, 1,400 units/kW/year, 80% self-consumption, and INR 8/unit. Residential subsidy is estimated as INR 30,000/kW for the first two whole kW plus INR 18,000 for the third, capped at INR 78,000; commercial eligibility is review-required. These are seeded demo rules, not current policy commitments. Consumption-based capacity and roof-limited capacity are shown separately. If reported usable area cannot support the minimum 0.5 kW demo system, no 0 kW quote is recommended; the site needs survey confirmation. A saved sales survey supplies usable roof area for the post-survey recommendation.
 
 ## UI decisions
 
@@ -46,22 +46,26 @@ Homeowners and sales users share one role-aware interface with English, Hindi an
 
 Survey saving is dirty-state aware: the action is disabled until input changes, success is announced only after a persisted response and shows the saved time, and failures retain values with an inline retry. Quote issue similarly waits for a persisted response, announces ID/capacity/issue time, offers PDF download, and changes the primary action to an explicit **Create revised quote** action that preserves prior snapshots.
 
+## Current interface screenshots
+
+Fresh browser screenshots were not captured for this revision; the generated document does not reuse the stale embedded images.
+
 ## Verification record
 
-Actual local checks on 09 Nov 2026 at the deployed release reference:
+Actual local checks on 09 Nov 2026 for this source revision:
 
 - `npm run typecheck` — passed.
-- `npm test` — passed: 13 test files, 41 tests.
+- `npm test` — passed: 17 test files, 53 tests.
 - `npm run build:production` — passed: Prisma Client generation, Vite production build and API TypeScript build.
 
-Tests cover deterministic calculation boundaries, missing/overlapping dated rules, quote snapshot mapping, assessment guardrails/provenance, bill and Groq response contracts, secure customer-token expiry/revocation, project transition decisions, database-error behaviour, and route parsing. Provider test suites use mocks. Earlier recorded live work exercised private Cloudinary upload/download and manual fallback after a bounded Groq timeout; it did **not** verify a successful live Groq extraction or qualification. The live public origin is listed above; this document makes no claim that the documentation update itself re-ran external-provider checks.
+Tests cover deterministic calculation and insufficient-roof boundaries, missing/overlapping dated rules, quote snapshot mapping, assessment guardrails/provenance, complete bill confirmation, extraction compare-and-swap, Cloudinary orphan cleanup, Express async error forwarding, account activation, bill and Groq response contracts, customer-token expiry/revocation, project transitions, database-error behaviour, route parsing and image-only document validation. Provider and concurrency tests use controlled test doubles. Prisma reported the Neon schema up to date; no migration, seed, reset, or provider call was made in this verification. Successful live Groq extraction/qualification and fresh browser screenshots remain unverified.
 
 ## Assumptions, cuts and next steps
 
 - Roof type choices (RCC concrete, metal sheet, tile roof, other/needs survey) are intake assumptions, not structural certification.
 - Price, generation, self-use, tariff and subsidy figures are seeded demo assumptions and require current policy/site review.
 - Mock notification records are persisted; no SMS, WhatsApp or email is sent.
-- Browser E2E/Playwright coverage and a repeat live Groq success test remain future work.
+- Browser E2E/Playwright coverage, fresh current-app screenshots, and a repeat live Groq success test remain future work. Verify the Render source commit with `/api/version` after each push.
 - Add operational monitoring, backup/retention policy, provider cost controls, accessibility audits and formal security review before a production commercial rollout.
 
 ## Setup summary

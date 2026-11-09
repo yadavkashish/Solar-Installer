@@ -3,6 +3,7 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import rateLimit from "express-rate-limit";
 import PDFDocument from "pdfkit";
+import argon2 from "argon2";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,10 +22,12 @@ import {
   SurveyCapacityError,
   SurveyRequiredError,
   ProjectTransitionError,
+  HomeownerActivationRequiredError,
 } from "./repository.js";
 import { PROJECT_STAGES, type ProjectStageId } from "./project-stages.js";
 import {
   csrf,
+  activationTokenHash,
   logout,
   ownsLead,
   role,
@@ -36,6 +39,7 @@ import multer from "multer";
 import {
   deletePrivateDocument,
   expiringDownloadUrl,
+  persistUploadedDocument,
   readPrivateDocument,
   uploadPrivateDocument,
   validateDocument,
@@ -56,8 +60,32 @@ import {
   isActiveStatusToken,
 } from "./status-link.js";
 import { databaseUnavailableResponse } from "./db-errors.js";
+import { forwardAsyncErrors } from "./async-handler.js";
+import { updateExtractionIfCurrent } from "./bill-extraction.js";
 
 const app = express();
+// Express 4 does not forward rejected promises from async handlers. Wrap every
+// async route/middleware registered below so the final error middleware can
+// return a safe response instead of leaving an unhandled rejection.
+const wrapAsyncHandler = (handler: any): any => {
+  if (Array.isArray(handler)) return handler.map(wrapAsyncHandler);
+  return typeof handler === "function" ? forwardAsyncErrors(handler) : handler;
+};
+for (const method of [
+  "get",
+  "post",
+  "put",
+  "patch",
+  "delete",
+  "options",
+  "head",
+  "all",
+  "use",
+] as const) {
+  const original = (app as any)[method].bind(app);
+  (app as any)[method] = (...args: any[]) =>
+    original(...args.map(wrapAsyncHandler));
+}
 const isProduction = process.env.NODE_ENV === "production";
 const configuredWebOrigin = process.env.WEB_ORIGIN?.replace(/\/$/, "");
 const publicOrigin = process.env.PUBLIC_ORIGIN?.replace(/\/$/, "");
@@ -99,6 +127,10 @@ const billDocumentResponse = (doc: any) => ({
   extraction: normaliseBillExtraction(doc.extraction),
   confirmed: normaliseBillConfirmation(doc.confirmed),
 });
+const extractionLeaseMs = 2 * 60 * 1000;
+const extractionIsStale = (doc: { status: string; extractionStartedAt: Date | null }) =>
+  doc.status === "EXTRACTING" &&
+  (!doc.extractionStartedAt || Date.now() - doc.extractionStartedAt.getTime() > extractionLeaseMs);
 async function enrichQualification(
   leadId: string,
   qualification: Parameters<typeof assessQualification>[0],
@@ -130,6 +162,9 @@ async function enrichQualification(
   }
 }
 app.get("/healthz", (_req, res) => res.json({ ok: true }));
+app.get("/api/version", (_req, res) =>
+  res.json({ commit: process.env.RENDER_GIT_COMMIT ?? null }),
+);
 app.get("/api/healthz", async (_req, res) => {
   try {
     await db.$queryRawUnsafe("SELECT 1");
@@ -169,6 +204,32 @@ app.post("/api/auth/login", async (req, res) => {
     maxAge: 86400000,
   });
   res.json({ user: login.user, csrfToken: login.csrf });
+});
+app.post("/api/auth/activate", async (req, res) => {
+  const input = z
+    .object({
+      token: z.string().regex(/^[A-Za-z0-9_-]{32,}$/),
+      password: z.string().min(12).max(128),
+    })
+    .safeParse(req.body);
+  if (!input.success)
+    return res.status(400).json({ error: "Use a valid activation link and a password of at least 12 characters." });
+  const changed = await db.user.updateMany({
+    where: {
+      activationTokenHash: activationTokenHash(input.data.token),
+      activationExpiresAt: { gt: new Date() },
+      activatedAt: null,
+    },
+    data: {
+      passwordHash: await argon2.hash(input.data.password),
+      activatedAt: new Date(),
+      activationTokenHash: null,
+      activationExpiresAt: null,
+    },
+  });
+  if (changed.count !== 1)
+    return res.status(400).json({ error: "This activation link is invalid or expired." });
+  res.status(204).end();
 });
 app.post("/api/auth/logout", session, csrf, logout);
 app.get("/api/auth/me", session, async (req, res) => {
@@ -248,34 +309,29 @@ app.post("/api/leads", session, csrf, role("HOMEOWNER", "SALES"), async (req, re
   try {
     const lead =
       req.principal!.role === "SALES"
-        ? await createSalesLead(input.data, req.principal!.id)
+        ? await createSalesLead(
+            input.data,
+            req.principal!.id,
+            publicOrigin ?? configuredWebOrigin ?? null,
+          )
         : await createLead(input.data, req.principal!.id);
+    const activationToken = (lead as any).activationToken;
+    if (activationToken) {
+      delete (lead as any).activationToken;
+      const origin = publicOrigin ?? configuredWebOrigin;
+      (lead as any).activationRequired = true;
+      (lead as any).activationUrl = origin
+        ? `${origin}/activate/${activationToken}`
+        : null;
+    }
     res.status(201).json(lead);
   } catch (error) {
     if (error instanceof LeadOwnershipError)
       return res.status(409).json({ error: error.message });
+    if (error instanceof HomeownerActivationRequiredError)
+      return res.status(503).json({ error: error.message });
     throw error;
   }
-});
-app.put("/api/leads/:id/bill", session, csrf, ownsLead, async (req, res) => {
-  const input = z
-    .object({
-      consumerNumber: z.string().nullable(),
-      tariff: z.string().nullable(),
-      monthlyUnits: z.coerce.number().positive().nullable(),
-      monthlyBill: z.coerce.number().nonnegative(),
-    })
-    .safeParse(req.body);
-  if (!input.success)
-    return res.status(400).json({ error: "Invalid bill values" });
-  const lead = await db.lead
-    .update({
-      where: { id: req.params.id as string },
-      data: { ...input.data, billStatus: "CONFIRMED" },
-    })
-    .catch(() => null);
-  if (!lead) return res.sendStatus(404);
-  res.json(lead);
 });
 app.post(
   "/api/leads/:id/bill/upload",
@@ -286,6 +342,7 @@ app.post(
   async (req, res) => {
     const started = Date.now(),
       id = req.params.id;
+    let asset: any;
     if (Array.isArray(id))
       return res.status(400).json({ error: "Invalid lead id" });
     const file = req.file;
@@ -300,25 +357,41 @@ app.post(
         bytes: file.size,
         ms: Date.now() - started,
       });
-      const asset = await uploadPrivateDocument(file.buffer, file.mimetype, id);
+      asset = await uploadPrivateDocument(file.buffer, file.mimetype, id);
       console.info("bill.upload.cloudinary_ok", {
         leadId: id,
         ms: Date.now() - started,
       });
-      const doc = await db.billDocument.create({
-        data: {
-          leadId: id,
-          storageKey: asset.public_id,
-          publicId: asset.public_id,
-          resourceType: asset.resource_type,
-          deliveryType: asset.type,
-          format: asset.format || file.mimetype.split("/")[1],
-          originalName: file.originalname,
-          mimeType: file.mimetype,
-          size: file.size,
-          status: "PENDING_EXTRACTION",
+      const doc = await persistUploadedDocument(
+        () =>
+          db.billDocument.create({
+            data: {
+              leadId: id,
+              storageKey: asset.public_id,
+              publicId: asset.public_id,
+              resourceType: asset.resource_type,
+              deliveryType: asset.type,
+              format: asset.format || file.mimetype.split("/")[1],
+              originalName: file.originalname,
+              mimeType: file.mimetype,
+              size: file.size,
+              status: "PENDING_EXTRACTION",
+            },
+          }),
+        async () => {
+          await deletePrivateDocument(asset.public_id, asset.resource_type);
         },
-      });
+        (cleanupError) => {
+          console.error("bill.upload.orphan_cleanup_failed", {
+            leadId: id,
+            message:
+              cleanupError instanceof Error
+                ? cleanupError.message
+                : "Unknown cleanup error",
+          });
+        },
+      );
+      console.info("bill.upload.metadata_saved", { leadId: id });
       res.status(201).json({
         documentId: doc.id,
         manualRequired: true,
@@ -331,6 +404,9 @@ app.post(
         ms: Date.now() - started,
         message: e?.message,
       });
+      const unavailable = databaseUnavailableResponse(e);
+      if (unavailable)
+        return res.status(unavailable.status).json(unavailable.body);
       res.status(422).json({ error: e.message || "Bill upload failed" });
     }
   },
@@ -380,6 +456,25 @@ app.get("/api/leads/:id/bill", session, ownsLead, async (req, res) => {
     orderBy: { createdAt: "desc" },
   });
   if (!doc) return res.json({ document: null });
+  if (extractionIsStale(doc)) {
+    await db.billDocument.updateMany({
+      where: {
+        id: doc.id,
+        status: "EXTRACTING",
+        extractionAttempt: doc.extractionAttempt,
+      },
+      data: {
+        status: "MANUAL_REQUIRED",
+        extractionStartedAt: null,
+        extractionAttempt: { increment: 1 },
+      },
+    });
+    return res.json({
+      document: billDocumentResponse(
+        await db.billDocument.findUniqueOrThrow({ where: { id: doc.id } }),
+      ),
+    });
+  }
   res.json({ document: billDocumentResponse(doc) });
 });
 app.post(
@@ -392,19 +487,39 @@ app.post(
       documentId = req.params.documentId;
     if (Array.isArray(id) || Array.isArray(documentId))
       return res.sendStatus(400);
-    const doc = await db.billDocument.findFirst({
-      where: { id: documentId, leadId: id },
+    const acquired = await db.$transaction(async (tx) => {
+      const doc = await tx.billDocument.findFirst({
+        where: { id: documentId, leadId: id },
+      });
+      if (!doc) return { kind: "MISSING" as const };
+      if (doc.status === "CONFIRMED") return { kind: "CONFIRMED" as const };
+      if (doc.status === "EXTRACTING" && !extractionIsStale(doc))
+        return { kind: "BUSY" as const };
+      const claimed = await tx.billDocument.updateMany({
+        where: {
+          id: doc.id,
+          status: doc.status,
+          extractionAttempt: doc.extractionAttempt,
+        },
+        data: {
+          status: "EXTRACTING",
+          extractionStartedAt: new Date(),
+          extractionAttempt: { increment: 1 },
+        },
+      });
+      if (claimed.count !== 1) return { kind: "BUSY" as const };
+      return { kind: "ACQUIRED" as const, doc, attempt: doc.extractionAttempt + 1 };
     });
-    if (!doc) return res.sendStatus(404);
-    if (doc.status === "CONFIRMED" || doc.status === "EXTRACTING")
-      return res
-        .status(409)
-        .json({ error: "Extraction is unavailable for this document state." });
+    if (acquired.kind === "MISSING") return res.sendStatus(404);
+    if (acquired.kind !== "ACQUIRED")
+      return res.status(409).json({
+        error:
+          acquired.kind === "CONFIRMED"
+            ? "A confirmed bill cannot be re-extracted."
+            : "Extraction is already in progress. Refresh shortly.",
+      });
+    const doc = acquired.doc;
     const started = Date.now();
-    await db.billDocument.update({
-      where: { id: doc.id },
-      data: { status: "EXTRACTING" },
-    });
     try {
       const bytes = await readPrivateDocument({
         publicId: doc.publicId,
@@ -418,13 +533,25 @@ app.post(
         ms: Date.now() - started,
       });
       const extraction = await extractBill(bytes, doc.mimeType);
-      const saved = await db.billDocument.update({
+      const completed = await updateExtractionIfCurrent(
+        (where) =>
+          db.billDocument.updateMany({
+            where,
+            data: {
+              extraction,
+              status: extractionStatus(extraction),
+              model: process.env.GROQ_VISION_MODEL,
+              extractionStartedAt: null,
+            },
+          }),
+        { id: doc.id, status: "EXTRACTING", extractionAttempt: acquired.attempt },
+      );
+      if (!completed)
+        return res.status(409).json({
+          error: "A newer bill review action superseded this extraction. Refresh the bill.",
+        });
+      const saved = await db.billDocument.findUniqueOrThrow({
         where: { id: doc.id },
-        data: {
-          extraction,
-          status: extractionStatus(extraction),
-          model: process.env.GROQ_VISION_MODEL,
-        },
       });
       if (extraction.unreadable)
         return res.status(422).json({
@@ -442,10 +569,18 @@ app.post(
         extraction: normaliseBillExtraction(saved.extraction),
       });
     } catch (e: any) {
-      await db.billDocument.update({
-        where: { id: doc.id },
-        data: { status: "MANUAL_REQUIRED" },
-      });
+      const failed = await updateExtractionIfCurrent(
+        (where) =>
+          db.billDocument.updateMany({
+            where,
+            data: { status: "MANUAL_REQUIRED", extractionStartedAt: null },
+          }),
+        { id: doc.id, status: "EXTRACTING", extractionAttempt: acquired.attempt },
+      );
+      if (!failed)
+        return res.status(409).json({
+          error: "A newer bill review action superseded this extraction. Refresh the bill.",
+        });
       console.warn("bill.extract.failed", {
         leadId: id,
         documentId: doc.id,
@@ -494,7 +629,12 @@ app.put(
       );
       const doc = await tx.billDocument.update({
         where: { id: documentId },
-        data: { confirmed: input.data, status: "CONFIRMED" },
+        data: {
+          confirmed: input.data,
+          status: "CONFIRMED",
+          extractionStartedAt: null,
+          extractionAttempt: { increment: 1 },
+        },
       });
       const lead = await tx.lead.update({
         where: { id },
@@ -584,7 +724,11 @@ app.post(
       if (!found) return null;
       const updated = await tx.billDocument.update({
         where: { id: documentId },
-        data: { status: "MANUAL_REQUIRED" },
+        data: {
+          status: "MANUAL_REQUIRED",
+          extractionStartedAt: null,
+          extractionAttempt: { increment: 1 },
+        },
       });
       await tx.auditEvent.create({
         data: {

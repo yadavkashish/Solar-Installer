@@ -295,6 +295,7 @@ function New({
     [err, setErr] = useState(""),
     [bill, setBill] = useState<File | null>(null),
     [createdLead, setCreatedLead] = useState<any>(null),
+    [activationUrl, setActivationUrl] = useState(""),
     [busy, setBusy] = useState(false);
   const change = (k: string, v: string) => setF({ ...f, [k]: v });
   const saveAndUpload = async () => {
@@ -319,6 +320,10 @@ function New({
         setCreatedLead(lead);
       }
       if (bill) await upload("/leads/" + lead.id + "/bill/upload", bill);
+      if (lead.activationUrl) {
+        setActivationUrl(lead.activationUrl);
+        return;
+      }
       done(lead);
     } catch (x: any) {
       setErr(
@@ -417,6 +422,16 @@ function New({
           />
         </div>
         {err && <p className="error">{err}</p>}
+        {activationUrl && (
+          <section className="guardrail-note">
+            <b>Share this one-time homeowner activation link securely.</b>
+            <code>{activationUrl}</code>
+            <p>It expires after seven days and is shown only for this newly provisioned account.</p>
+            <button className="secondary" type="button" onClick={() => done(createdLead)}>
+              Open customer lead
+            </button>
+          </section>
+        )}
         <button className="primary" disabled={busy}>
           {busy
             ? "Saving…"
@@ -1187,6 +1202,34 @@ function LeadRoute({
     />
   );
 }
+function ActivateAccount({ token, navigate }: { token: string; navigate: (path: string) => void }) {
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [complete, setComplete] = useState(false);
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (password.length < 12 || password !== confirmPassword) {
+      setError("Use a matching password of at least 12 characters.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await api("/auth/activate", {
+        method: "POST",
+        body: JSON.stringify({ token, password }),
+      });
+      setComplete(true);
+    } catch (e: any) {
+      setError(e.message || "Account activation is unavailable.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <main className="login"><section className="card"><h1>Activate homeowner account</h1>{complete ? <><p role="status">Your account is active. Sign in with your new password.</p><button className="primary" onClick={() => navigate("/leads")}>Go to sign in</button></> : <form onSubmit={submit}><label>New password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label><label>Confirm password<input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} /></label>{error && <p className="error" role="alert">{error}</p>}<button className="primary" disabled={busy}>{busy ? "Activating…" : "Activate account"}</button></form>}</section></main>;
+}
 function App() {
   const [user, setUser] = useState<CurrentUser | null>(null),
     [ready, setReady] = useState(false),
@@ -1229,6 +1272,8 @@ function App() {
         <CustomerStatus token={route.token} t={t} />
       </>
     );
+  if (route.kind === "activate")
+    return <ActivateAccount token={route.token} navigate={navigate} />;
   if (!ready) return <main>{t.loading}</main>;
   if (!user)
     return (

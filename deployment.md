@@ -4,7 +4,7 @@ Repository: https://github.com/yadavkashish/Solar-Installer
 
 Live service: https://solar-installer.onrender.com
 
-Release reference: `09fb513527b753393744dee4ac19789c1f80026e` (`Improve survey and quote submission feedback`). The deployed service is a single Node web service: Express serves the built Vite application and its `/api` routes on the same origin.
+The deployed service is a single Node web service: Express serves the built Vite application and its `/api` routes on the same origin. `GET /api/version` returns Render's `RENDER_GIT_COMMIT`; compare it with the pushed commit before describing a release as deployed.
 
 ## Prerequisites
 
@@ -50,9 +50,11 @@ npx prisma migrate deploy
 npm run db:seed
 ```
 
+`prisma migrate deploy` applies forward-only migrations and does not reset or reseed the database. The sample seed is idempotent, but it is not required for deploying existing customer data.
+
 ## Recorded checks
 
-At the release reference, the local commands `npm run typecheck`, `npm test` (13 files, 41 tests), and `npm run build:production` passed on 09 Nov 2026. The pincode/assessment-provenance migration applied successfully to Neon and `npm run db:seed` ran twice without resetting data. An earlier live synthetic PNG reached Cloudinary and was downloaded privately; the bounded Groq extraction request timed out and correctly produced the manual-review path. Automated provider tests use mocks. This update does not claim a new live provider request.
+Current checks on 09 Nov 2026: `npm run typecheck` passed, `npm test` passed (17 files, 53 tests), and `npm run build:production` passed. `npx prisma migrate status --schema=prisma/schema.prisma` reported the Neon schema up to date. No migration, seed, reset, or provider request was run in this verification. Confirm the deployed revision separately with `/api/version`.
 
 ## Environment
 
@@ -62,6 +64,10 @@ Enter values for these names in the host’s Environment page; never commit a `.
 
 Use a Render **Web Service**, connect the GitHub repository, choose branch `master`, set Build Command to `npm ci && npm run build:production`, Start Command to `npm run start`, and Health Check Path to `/healthz`. Apply `npx prisma migrate deploy` from an authorised environment before the first service release and for later forward migrations. Render’s Environment page is where the variables above are entered. This application keeps persistence in Neon and private bills in Cloudinary, not local storage. Bills are validated from memory, document metadata is persisted, and provider failures preserve the document for retry/manual entry. Quote PDFs use the issued snapshot; dated price, generation and subsidy rules are selected at issue time. Payment, WhatsApp/SMS, DISCOM and subsidy submission are mocked; no real external action occurs.
 
+Sales-created homeowner accounts remain unable to sign in until the seven-day, one-time activation link is redeemed. The creating sales user must relay the link securely; this application does not send activation email. The link is shown only in the authenticated creation response and can be reissued by creating another lead for a still-pending homeowner account.
+
+After pushing a release, verify `GET https://solar-installer.onrender.com/api/version` reports the exact pushed commit. A public health response alone does not establish which source revision is running.
+
 ## Known limitations
 
-The deployed public origin is listed above. Successful live Groq extraction/qualification remains unverified because the recorded bounded extraction request timed out; the authenticated Cloudinary upload/private-download/manual-review path was exercised. Automated provider tests use mocks. Full Playwright browser regression coverage remains a future improvement. PDF bill extraction is intentionally unsupported; request a JPEG/PNG bill or use manual entry.
+The deployed public origin is listed above. Successful live Groq extraction/qualification remains unverified; automated provider tests use mocks. Fresh browser screenshots were not captured for this revision, and the final design document omits stale screenshots. Full Playwright browser regression coverage remains a future improvement. PDF bill extraction is intentionally unsupported; request a JPEG/PNG bill or use manual entry.

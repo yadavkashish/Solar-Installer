@@ -4,6 +4,7 @@ export type Route =
   | { kind: "new" }
   | { kind: "lead"; id: string; tab: LeadTab }
   | { kind: "customerStatus"; token: string }
+  | { kind: "activate"; token: string }
   | { kind: "notFound" };
 
 const tabFromPath: Record<string, LeadTab> = {
@@ -18,6 +19,8 @@ export function parseRoute(pathname: string): Route {
   const parts = pathname.replace(/\/+$/, "").split("/").filter(Boolean);
   if (parts[0] === "customer-status" && parts.length === 2)
     return { kind: "customerStatus", token: parts[1] };
+  if (parts[0] === "activate" && parts.length === 2)
+    return { kind: "activate", token: parts[1] };
   if (!parts.length || (parts.length === 1 && parts[0] === "leads"))
     return { kind: "leads" };
   if (parts[0] !== "leads") return { kind: "notFound" };

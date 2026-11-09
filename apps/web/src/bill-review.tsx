@@ -81,7 +81,8 @@ export function BillReview({
     [busy, setBusy] = useState(false),
     [success, setSuccess] = useState(""),
     [dirty, setDirty] = useState(false),
-    [suggestionsAvailable, setSuggestionsAvailable] = useState(false);
+    [suggestionsAvailable, setSuggestionsAvailable] = useState(false),
+    [reopenReason, setReopenReason] = useState("");
   const load = async (replaceEdits = false) => {
     setError("");
     try {
@@ -181,20 +182,21 @@ export function BillReview({
   };
   const reopen = async () => {
     if (!doc) return;
-    const reason = window.prompt(
-      "Why does this confirmed bill need correction?",
-    );
-    if (!reason) return;
+    if (reopenReason.trim().length < 3) {
+      setError("Provide a correction reason of at least three characters.");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
       await api("/leads/" + lead.id + "/bill/" + doc.id + "/reopen", {
         method: "POST",
-        body: JSON.stringify({ reason }),
+        body: JSON.stringify({ reason: reopenReason.trim() }),
       });
       setSuccess(
         "Bill reopened for correction. The previous confirmation remains in audit history.",
       );
+      setReopenReason("");
       await load(true);
     } catch (e: any) {
       setError(e.message || "The bill could not be reopened.");
@@ -244,9 +246,20 @@ export function BillReview({
                     : "Upload a JPEG or PNG bill to begin review."}
         </p>
         {doc?.status === "CONFIRMED" && canReopen && (
-          <button className="secondary" disabled={busy} onClick={reopen}>
-            Correct confirmed values
-          </button>
+          <fieldset>
+            <legend>Correct confirmed values</legend>
+            <label>
+              Reason for correction
+              <textarea
+                value={reopenReason}
+                maxLength={500}
+                onChange={(event) => setReopenReason(event.target.value)}
+              />
+            </label>
+            <button className="secondary" disabled={busy} onClick={reopen}>
+              Reopen bill review
+            </button>
+          </fieldset>
         )}
         {suggestionsAvailable && (
           <button
@@ -269,8 +282,8 @@ export function BillReview({
         <p>
           {t.aiReview}
         </p>
-        {error && <p className="error">{error}</p>}
-        {success && <p>{success}</p>}
+        {error && <p className="error" role="alert">{error}</p>}
+        {success && <p role="status" aria-live="polite">{success}</p>}
         <label>
           {t.consumerNumber}
           <input

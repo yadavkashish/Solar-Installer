@@ -4,11 +4,21 @@ const nullableText = z.string().trim().min(1).nullable();
 const nullableNumber = z.number().finite().nonnegative().nullable();
 const requiredNumber = (message: string, positive = false) =>
   z.preprocess(
-    (value) =>
-      typeof value === "string" && value.trim() === "" ? undefined : value,
-    positive
-      ? z.coerce.number().finite().positive(message)
-      : z.coerce.number().finite().nonnegative(message),
+    (value) => {
+      if (
+        value == null ||
+        (typeof value === "string" && value.trim() === "")
+      )
+        return undefined;
+      return value;
+    },
+    z
+      .union([z.string(), z.number()])
+      .pipe(
+        positive
+          ? z.coerce.number().finite().positive(message)
+          : z.coerce.number().finite().nonnegative(message),
+      ),
   );
 
 /**

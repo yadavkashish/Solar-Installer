@@ -1,13 +1,15 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
 const buildDir = join(root, ".tdd-docx-build");
 const docxPath = join(root, "Technical Design Document.docx");
 const docxZipPath = join(root, ".tdd-output.zip");
+const generatedDocxPath = join(root, ".tdd-output.docx");
 const submissionDir = join(root, ".submission-build");
 const submissionPath = join(root, "submission.zip");
+const generatedSubmissionPath = join(root, ".submission-output.zip");
 
 const escapeXml = (value) =>
   value
@@ -30,23 +32,46 @@ const image = (id, name, width, height) =>
 
 const source = readFileSync(join(root, "docs", "TDD.md"), "utf8").replace(/\r/g, "");
 const blocks = [];
-let insertedScreenshots = false;
+const imageRelationships = [];
 
 for (const line of source.split("\n")) {
   if (!line.trim()) continue;
+  const imageMatch = /^!\[([^\]]*)\]\(([^)]+)\)$/.exec(line);
+  if (imageMatch) {
+    const imagePath = resolve(root, "docs", imageMatch[2]);
+    if (!imagePath.startsWith(resolve(root, "docs", "screenshots") + "\\"))
+      throw new Error(`Screenshot path is outside docs/screenshots: ${imageMatch[2]}`);
+    const bytes = readFileSync(imagePath);
+    if (
+      bytes.length < 24 ||
+      bytes.toString("ascii", 1, 4) !== "PNG" ||
+      bytes.toString("ascii", 12, 16) !== "IHDR"
+    )
+      throw new Error(`Screenshot is not a valid PNG: ${imageMatch[2]}`);
+    const width = bytes.readUInt32BE(16);
+    const height = bytes.readUInt32BE(20);
+    const maxWidth = 5_303_520;
+    const maxHeight = 5_943_600;
+    const scale = Math.min(maxWidth / width, maxHeight / height);
+    const id = imageRelationships.length + 1;
+    const name = basename(imagePath);
+    imageRelationships.push({ id, name, path: imagePath });
+    blocks.push(paragraph(imageMatch[1], { size: 18, before: 100, after: 40 }));
+    blocks.push(
+      image(
+        id,
+        name,
+        Math.round(width * scale),
+        Math.round(height * scale),
+      ),
+    );
+    continue;
+  }
   if (line.startsWith("# ")) {
     blocks.push(paragraph(plainText(line.slice(2)), { bold: true, size: 34, after: 220 }));
     continue;
   }
   if (line.startsWith("## ")) {
-    if (!insertedScreenshots && line.includes("Verification record")) {
-      blocks.push(paragraph("Working application captures", { bold: true, size: 26, before: 160 }));
-      blocks.push(image(1, "Desktop dashboard", 5486400, 3086100));
-      blocks.push(paragraph("Desktop working-app capture.", { size: 18, after: 160 }));
-      blocks.push(image(2, "Mobile view", 2743200, 4876800));
-      blocks.push(paragraph("Mobile working-app capture.", { size: 18, after: 180 }));
-      insertedScreenshots = true;
-    }
     blocks.push(paragraph(plainText(line.slice(3)), { bold: true, size: 26, before: 180, after: 110 }));
     continue;
   }
@@ -74,6 +99,9 @@ rmSync(buildDir, { recursive: true, force: true });
 mkdirSync(join(buildDir, "_rels"), { recursive: true });
 mkdirSync(join(buildDir, "word", "_rels"), { recursive: true });
 mkdirSync(join(buildDir, "word", "media"), { recursive: true });
+for (const asset of imageRelationships) {
+  cpSync(asset.path, join(buildDir, "word", "media", asset.name));
+}
 
 writeFileSync(join(buildDir, "[Content_Types].xml"), `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`);
@@ -81,25 +109,27 @@ writeFileSync(join(buildDir, "_rels", ".rels"), `<?xml version="1.0" encoding="U
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`);
 writeFileSync(join(buildDir, "word", "document.xml"), documentXml);
 writeFileSync(join(buildDir, "word", "_rels", "document.xml.rels"), `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/dashboard.png"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/mobile.png"/></Relationships>`);
-cpSync(join(root, "docs", "dashboard.png"), join(buildDir, "word", "media", "dashboard.png"));
-cpSync(join(root, "docs", "mobile.png"), join(buildDir, "word", "media", "mobile.png"));
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${imageRelationships.map(({ id, name }) => `<Relationship Id="rId${id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${name}"/>`).join("")}</Relationships>`);
 
-rmSync(docxPath, { force: true });
 rmSync(docxZipPath, { force: true });
 execFileSync("powershell.exe", ["-NoProfile", "-Command", "Compress-Archive -Path .tdd-docx-build\\* -DestinationPath .tdd-output.zip -CompressionLevel Optimal"], { cwd: root, stdio: "inherit" });
-renameSync(docxZipPath, docxPath);
+rmSync(generatedDocxPath, { force: true });
+renameSync(docxZipPath, generatedDocxPath);
 
 rmSync(submissionDir, { recursive: true, force: true });
 mkdirSync(submissionDir);
-cpSync(docxPath, join(submissionDir, "Technical Design Document.docx"));
+cpSync(generatedDocxPath, join(submissionDir, "Technical Design Document.docx"));
 cpSync(join(root, "deployment.md"), join(submissionDir, "deployment.md"));
-rmSync(submissionPath, { force: true });
-execFileSync("powershell.exe", ["-NoProfile", "-Command", "Compress-Archive -Path .submission-build\\* -DestinationPath submission.zip -CompressionLevel Optimal"], { cwd: root, stdio: "inherit" });
+rmSync(generatedSubmissionPath, { force: true });
+execFileSync("powershell.exe", ["-NoProfile", "-Command", "Compress-Archive -Path .submission-build\\* -DestinationPath .submission-output.zip -CompressionLevel Optimal"], { cwd: root, stdio: "inherit" });
 
-if (!existsSync(docxPath) || !existsSync(submissionPath)) {
+if (!existsSync(generatedDocxPath) || !existsSync(generatedSubmissionPath)) {
   throw new Error("Document package generation did not produce the expected artifacts.");
 }
 
+rmSync(docxPath, { force: true });
+renameSync(generatedDocxPath, docxPath);
+rmSync(submissionPath, { force: true });
+renameSync(generatedSubmissionPath, submissionPath);
 rmSync(buildDir, { recursive: true, force: true });
 rmSync(submissionDir, { recursive: true, force: true });

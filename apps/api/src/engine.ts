@@ -121,19 +121,26 @@ export function sizing(units: number | null, roof: number | null) {
     ? Math.max(1, Math.round(((units * 12) / 1400) * 2) / 2)
     : null;
   const roofLimitedKw =
-    roof == null ? null : Math.max(0.5, Math.floor((roof / 10) * 2) / 2);
+    roof == null ? null : Math.max(0, Math.floor((roof / 10) * 2) / 2);
   const recommendedKw =
     consumptionBasedKw == null
       ? null
       : roofLimitedKw == null
         ? consumptionBasedKw
-        : Math.min(consumptionBasedKw, roofLimitedKw);
+        : roofLimitedKw < 0.5
+          ? null
+          : Math.min(consumptionBasedKw, roofLimitedKw);
   return { consumptionBasedKw, roofLimitedKw, recommendedKw };
 }
 export function recommend(units: number | null, roof: number | null) {
   const { consumptionBasedKw, roofLimitedKw, recommendedKw } = sizing(units, roof);
   if (consumptionBasedKw == null)
     return { kw: null, note: "Confirm average monthly units before sizing." };
+  if (roofLimitedKw != null && roofLimitedKw < 0.5)
+    return {
+      kw: null,
+      note: "Reported roof area is insufficient for the minimum 0.5 kW demo system; confirm usable area during survey.",
+    };
   if (roofLimitedKw != null && roofLimitedKw < consumptionBasedKw)
     return {
       kw: recommendedKw,

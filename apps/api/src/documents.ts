@@ -2,11 +2,27 @@ import {v2 as cloudinary} from 'cloudinary';
 import {Readable} from 'node:stream';
 import crypto from 'node:crypto';
 
-const allowed=new Map([['image/jpeg',[[0xff,0xd8,0xff]]],['image/png',[[0x89,0x50,0x4e,0x47]]],['application/pdf',[[0x25,0x50,0x44,0x46]]]]);
+const allowed=new Map([['image/jpeg',[[0xff,0xd8,0xff]]],['image/png',[[0x89,0x50,0x4e,0x47]]]]);
 export const maxDocumentBytes=10*1024*1024;
-export function validateDocument(buffer:Buffer,mime:string){if(!allowed.has(mime))throw Error('Only JPEG, PNG, and PDF documents are accepted.');if(!buffer.length||buffer.length>maxDocumentBytes)throw Error('Document must be between 1 byte and 10 MB.');const signatures=allowed.get(mime)!;if(!signatures.some(s=>s.every((b,i)=>buffer[i]===b)))throw Error('File signature does not match its declared type.');}
+export function validateDocument(buffer:Buffer,mime:string){if(!allowed.has(mime))throw Error('Only JPEG and PNG bill images are accepted. Enter bill values manually when only a PDF is available.');if(!buffer.length||buffer.length>maxDocumentBytes)throw Error('Document must be between 1 byte and 10 MB.');const signatures=allowed.get(mime)!;if(!signatures.some(s=>s.every((b,i)=>buffer[i]===b)))throw Error('File signature does not match its declared type.');}
 function configured(){const {CLOUDINARY_CLOUD_NAME,CLOUDINARY_API_KEY,CLOUDINARY_API_SECRET}=process.env;if(!CLOUDINARY_CLOUD_NAME||!CLOUDINARY_API_KEY||!CLOUDINARY_API_SECRET)throw Error('Cloudinary is not configured. Use manual bill entry until credentials are supplied.');cloudinary.config({cloud_name:CLOUDINARY_CLOUD_NAME,api_key:CLOUDINARY_API_KEY,api_secret:CLOUDINARY_API_SECRET,secure:true});}
 export async function uploadPrivateDocument(buffer:Buffer,mime:string,leadId:string){validateDocument(buffer,mime);configured();const publicId=`surya-path/${leadId}/${crypto.randomUUID()}`;const resourceType=mime.startsWith('image/')?'image':'raw';return new Promise<any>((resolve,reject)=>{const stream=cloudinary.uploader.upload_stream({public_id:publicId,resource_type:resourceType,type:'authenticated',access_mode:'authenticated'},(error,result)=>error||!result?reject(error??Error('Cloudinary returned no asset')):resolve(result));Readable.from(buffer).pipe(stream)});}
 export async function deletePrivateDocument(publicId:string,resourceType='raw'){configured();await cloudinary.uploader.destroy(publicId,{resource_type:resourceType,type:'authenticated'});}
+export async function persistUploadedDocument<T>(
+  persist: () => Promise<T>,
+  cleanup: () => Promise<void>,
+  onCleanupFailure: (error: unknown) => void,
+): Promise<T> {
+  try {
+    return await persist();
+  } catch (error) {
+    try {
+      await cleanup();
+    } catch (cleanupError) {
+      onCleanupFailure(cleanupError);
+    }
+    throw error;
+  }
+}
 export function expiringDownloadUrl(asset:{publicId:string;resourceType:string;deliveryType:string;format:string}){configured();return cloudinary.url(asset.publicId,{resource_type:asset.resourceType,type:asset.deliveryType,format:asset.format,sign_url:true,expires_at:Math.floor(Date.now()/1000)+300});}
 export async function readPrivateDocument(asset:{publicId:string;resourceType:string;deliveryType:string;format:string}){const url=expiringDownloadUrl(asset);const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),15000);try{const response=await fetch(url,{signal:controller.signal});if(!response.ok)throw Error(`Cloudinary download failed (${response.status})`);return Buffer.from(await response.arrayBuffer())}finally{clearTimeout(timer)}}
