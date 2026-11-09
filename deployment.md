@@ -54,7 +54,7 @@ npm run db:seed
 
 ## Recorded checks
 
-Current checks on 09 Nov 2026: `npm run typecheck` passed, `npm test` passed (17 files, 53 tests), and `npm run build:production` passed. `npx prisma migrate status --schema=prisma/schema.prisma` reported the Neon schema up to date. No migration, seed, reset, or provider request was run in this verification. Confirm the deployed revision separately with `/api/version`.
+Current checks on 09 Nov 2026: `npm run typecheck` passed, `npm test` passed (17 files, 53 tests), and `npm run build:production` passed. `npx prisma migrate status --schema=prisma/schema.prisma` reported the Neon schema up to date. No migration, seed, reset, or provider request was run in this verification. The post-push `GET /api/version` check returned JSON `404`; the deployed revision is therefore unverified.
 
 ## Environment
 

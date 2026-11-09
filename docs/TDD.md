@@ -4,7 +4,7 @@
 
 **Live application:** https://solar-installer.onrender.com
 
-**Deployment status:** verify the running source revision through `GET /api/version`, which reports Render's `RENDER_GIT_COMMIT`. A healthy URL alone is not treated as commit verification.
+**Deployment status:** the post-push `GET /api/version` check returned JSON `404`, so the running source revision is not verified. Once Render serves this release, that endpoint should report Render's `RENDER_GIT_COMMIT`; a healthy URL alone is not commit verification.
 
 ## Purpose and scope
 
@@ -65,7 +65,7 @@ Tests cover deterministic calculation and insufficient-roof boundaries, missing/
 - Roof type choices (RCC concrete, metal sheet, tile roof, other/needs survey) are intake assumptions, not structural certification.
 - Price, generation, self-use, tariff and subsidy figures are seeded demo assumptions and require current policy/site review.
 - Mock notification records are persisted; no SMS, WhatsApp or email is sent.
-- Browser E2E/Playwright coverage, fresh current-app screenshots, and a repeat live Groq success test remain future work. Verify the Render source commit with `/api/version` after each push.
+- Browser E2E/Playwright coverage, fresh current-app screenshots, a repeat live Groq success test, and confirmation that Render serves this pushed source commit remain unverified. Recheck `/api/version` after deployment.
 - Add operational monitoring, backup/retention policy, provider cost controls, accessibility audits and formal security review before a production commercial rollout.
 
 ## Setup summary
