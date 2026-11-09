@@ -1,10 +1,14 @@
 {
   "name": "surya-path",
   "private": true,
-  "workspaces": ["apps/*"],
+  "workspaces": [
+    "apps/*"
+  ],
   "scripts": {
     "dev": "npm run dev -w @surya/web",
     "build": "npm run build -w @surya/web && npm run build -w @surya/api",
+    "build:production": "npm run db:generate && npm run build",
+    "start": "npm run start -w @surya/api",
     "test": "npm run test -w @surya/api",
     "typecheck": "npm run typecheck -w @surya/web && npm run typecheck -w @surya/api",
     "db:generate": "prisma generate",
