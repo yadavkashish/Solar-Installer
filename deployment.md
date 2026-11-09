@@ -29,7 +29,7 @@ npm run db:seed
 
 ## Checks
 
-Latest local result (07 Nov 2026): `npm run typecheck` passed; `npm run test` passed (9 files, 28 tests); `npm run build` passed; and `npx prisma migrate status` reported three migrations with an up-to-date schema. `npm run db:seed` was attempted twice but both attempts failed with `PrismaClientInitializationError` because the configured Neon pooled host could not be reached. No reset, deletion or migration was performed.
+Latest local result (09 Nov 2026): `npm run typecheck` passed; `npm run test` passed (9 files, 28 tests); `npm run build` passed; and `npx prisma migrate status` reported three migrations with an up-to-date schema. `npm run db:seed` was attempted twice but both attempts failed with `PrismaClientInitializationError` because the configured Neon pooled host could not be reached. No reset, deletion or migration was performed.
 
 ## Environment
 
