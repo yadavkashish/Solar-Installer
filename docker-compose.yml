@@ -1,0 +1,10 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: suryapath
+      POSTGRES_USER: surya
+      POSTGRES_PASSWORD: surya_local_only
+    ports: ["5432:5432"]
+    volumes: ["solar_pg:/var/lib/postgresql/data"]
+volumes: { solar_pg: {} }

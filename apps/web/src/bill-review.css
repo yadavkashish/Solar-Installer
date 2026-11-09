@@ -1,0 +1,36 @@
+.bill-review .bill {
+  min-height: 0;
+}
+.bill-preview {
+  display: block;
+  max-width: 100%;
+  max-height: 460px;
+  margin: 10px auto;
+  border-radius: 8px;
+  object-fit: contain;
+}
+.compact-form {
+  gap: 10px;
+  margin-top: 0;
+}
+.compact-form p {
+  margin: 0;
+}
+.compact-form input,
+.compact-form select {
+  min-height: 38px;
+  padding: 8px 10px;
+}
+.compact-form .primary,
+.compact-form .secondary {
+  min-height: 38px;
+  padding: 9px 12px;
+}
+.success {
+  color: #286149;
+}
+@media (max-width: 700px) {
+  .bill-preview {
+    max-height: 340px;
+  }
+}

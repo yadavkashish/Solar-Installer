@@ -1,0 +1,154 @@
+generator client {
+ provider = "prisma-client-js"
+}
+datasource db {
+ provider = "postgresql"
+ url = env("DATABASE_URL")
+}
+enum Role {
+ HOMEOWNER
+ SALES
+}
+enum LeadStatus {
+ NEW
+ REVIEWING
+ QUOTE_ISSUED
+}
+model User {
+ id String @id @default(cuid())
+ email String @unique
+ passwordHash String
+ role Role
+ name String
+ leads Lead[] @relation("OwnerLeads")
+ sessions Session[]
+ createdAt DateTime @default(now())
+}
+model Session {
+ id String @id @default(cuid())
+ userId String
+ user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+ tokenHash String @unique
+ csrfSecret String
+ expiresAt DateTime
+ revokedAt DateTime?
+ createdAt DateTime @default(now())
+}
+model Lead {
+ id String @id
+ name String
+ email String
+ phone String
+ ownerType String
+ roofType String
+ roofArea Decimal?
+ monthlyBill Int
+ monthlyUnits Decimal?
+ tariff String?
+ consumerNumber String?
+ billStatus String @default("NEEDS_REVIEW")
+ status LeadStatus @default(NEW)
+ ownerId String
+ owner User @relation("OwnerLeads",fields:[ownerId],references:[id])
+ assessment QualificationAssessment?
+ documents BillDocument[]
+ quotes Quote[]
+ project Project?
+ audits AuditEvent[]
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+}
+model BillDocument {
+ id String @id @default(cuid())
+ leadId String
+ lead Lead @relation(fields:[leadId],references:[id],onDelete:Cascade)
+ storageKey String
+ publicId String @unique
+ resourceType String
+ deliveryType String
+ format String
+ originalName String
+ mimeType String
+ size Int
+ extraction Json?
+ confirmed Json?
+ model String?
+ status String @default("MANUAL_REQUIRED")
+ createdAt DateTime @default(now())
+}
+model QualificationAssessment {
+ id String @id @default(cuid())
+ leadId String @unique
+ lead Lead @relation(fields:[leadId],references:[id],onDelete:Cascade)
+ source String
+ score Int
+ band String
+ reasons Json
+ nextAction String
+ recommendation Json
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+}
+model RuleSet {
+ id String @id @default(cuid())
+ category String
+ effectiveFrom DateTime
+ effectiveTo DateTime?
+ payload Json
+ version String
+ createdAt DateTime @default(now())
+ @@index([category,effectiveFrom])
+}
+model Quote {
+ id String @id @default(cuid())
+ leadId String
+ lead Lead @relation(fields:[leadId],references:[id],onDelete:Cascade)
+ version Int
+ snapshot Json
+ createdAt DateTime @default(now())
+ @@unique([leadId,version])
+}
+model Project {
+ id String @id @default(cuid())
+ leadId String @unique
+ lead Lead @relation(fields:[leadId],references:[id],onDelete:Cascade)
+ stage String @default("NOT_STARTED")
+ events StageEvent[]
+ statusTokens StatusToken[]
+ notifications NotificationEvent[]
+}
+model StageEvent {
+ id String @id @default(cuid())
+ projectId String
+ project Project @relation(fields:[projectId],references:[id],onDelete:Cascade)
+ stage String
+ actorId String
+ correction Boolean @default(false)
+ createdAt DateTime @default(now())
+}
+model StatusToken {
+ id String @id @default(cuid())
+ projectId String
+ project Project @relation(fields:[projectId],references:[id],onDelete:Cascade)
+ tokenHash String @unique
+ expiresAt DateTime
+ revokedAt DateTime?
+ createdAt DateTime @default(now())
+}
+model NotificationEvent {
+ id String @id @default(cuid())
+ projectId String
+ project Project @relation(fields:[projectId],references:[id],onDelete:Cascade)
+ type String
+ payload Json
+ createdAt DateTime @default(now())
+}
+model AuditEvent {
+ id String @id @default(cuid())
+ leadId String
+ lead Lead @relation(fields:[leadId],references:[id],onDelete:Cascade)
+ actorId String
+ action String
+ metadata Json?
+ createdAt DateTime @default(now())
+}

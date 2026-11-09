@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+private-uploads/
+*.pdf
+*.tsbuildinfo
+Technical Design Document.docx
+submission.zip
+docs/ooxml/
+docs/ooxml-final/
+docs/*.doc
+docs/*.docx
+docs/*.png
+coverage/
