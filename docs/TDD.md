@@ -119,7 +119,7 @@ Latest local code checks:
 
 The local database-backed seed, login, repeat-seed execution, full workflow and screenshots remain unverified because this environment has no local PostgreSQL service. The seed script refuses non-loopback database URLs; no migration or seed was run against production.
 
-After the user reported the Render service live, the expected source commit was `1771a1b4c0db7a360edbcab56e7ce78b456b07f5`. Actual GET results did not match: `/healthz` returned `{"ok":true}` without a commit field, and `/api/version` returned the older `d635dfdba922d6e3e785ffaf43cf98b4519cef91`. Render is not verified as serving the source revision. The user must confirm the correct service and manually deploy the latest `master` HEAD; recheck both endpoints after that deploy. Live provider success also remains unverified.
+The first check after the user reported Render live was stale: `/healthz` had no commit field and `/api/version` returned `d635dfdba922d6e3e785ffaf43cf98b4519cef91`. After the user manually deployed, both endpoints returned the expected app-source commit `3fbff3b0f01e6e9c9b42a9faa7716592f73f183d`: `/healthz` returned `{"ok":true,"commit":"3fbff3b0f01e6e9c9b42a9faa7716592f73f183d"}` and `/api/version` returned the matching commit. The final follow-up commit only records this verification in the documents; it changes no application code. Live provider success remains unverified.
 
 ## Assumptions
 

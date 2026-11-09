@@ -96,7 +96,7 @@ For the existing Render service, confirm these settings manually in the dashboar
 8. Save, deploy the latest `master` commit, and wait for Render to show the service as live.
 9. Check `https://solar-installer.onrender.com/healthz` and `https://solar-installer.onrender.com/api/version`. Both should include a `commit` matching the pushed `master` HEAD. `/api/healthz` separately checks database connectivity.
 
-Latest live check, after the user reported the service live: expected commit `1771a1b4c0db7a360edbcab56e7ce78b456b07f5`; `/healthz` returned `{"ok":true}` without a `commit` field, while `/api/version` returned the older `d635dfdba922d6e3e785ffaf43cf98b4519cef91`. The running service therefore did not pass the commit check. Confirm the correct Render service/branch, manually deploy the latest `master` HEAD, then recheck both endpoints. No new deployed SHA is claimed.
+The first live check after the user reported deployment was stale: `/healthz` had no `commit` field and `/api/version` returned `d635dfdba922d6e3e785ffaf43cf98b4519cef91`. After a subsequent manual deploy, both endpoints returned app-source commit `3fbff3b0f01e6e9c9b42a9faa7716592f73f183d`. The final follow-up commit only records this verification in the documents and changes no application code. After any future application-code push, compare both endpoints with that release's source commit again.
 
 ## Environment variable names
 
