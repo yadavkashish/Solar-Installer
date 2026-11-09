@@ -77,12 +77,37 @@ export function isLoopbackDatabaseUrl(connectionString: string | undefined) {
   if (!connectionString) return false;
   try {
     const url = new URL(connectionString);
+    if (url.protocol !== "postgres:" && url.protocol !== "postgresql:")
+      return false;
     return ["localhost", "127.0.0.1", "::1"].includes(
       url.hostname.replace(/^\[|\]$/g, ""),
     );
   } catch {
     return false;
   }
+}
+
+function isPostgresDatabaseUrl(connectionString: string | undefined) {
+  if (!connectionString) return false;
+  try {
+    const url = new URL(connectionString);
+    return (
+      (url.protocol === "postgres:" || url.protocol === "postgresql:") &&
+      url.hostname.length > 0
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function canSeedDatabase(
+  connectionString: string | undefined,
+  allowRemoteSeed: string | undefined,
+) {
+  return (
+    isLoopbackDatabaseUrl(connectionString) ||
+    (isPostgresDatabaseUrl(connectionString) && allowRemoteSeed === "true")
+  );
 }
 
 export function sampleAssessment(lead: (typeof demoLeads)[number]) {

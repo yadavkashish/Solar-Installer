@@ -1,6 +1,6 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { basename, join, resolve } from "node:path";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
 const buildDir = join(root, ".tdd-docx-build");
@@ -33,38 +33,78 @@ const image = (id, name, width, height) =>
 const source = readFileSync(join(root, "docs", "TDD.md"), "utf8").replace(/\r/g, "");
 const blocks = [];
 const imageRelationships = [];
+const screenshotFiles = [
+  ["lead-form.png", "Lead form"],
+  ["bill-review.png", "Bill review"],
+  ["quote.png", "Quote"],
+  ["tracker.png", "Project tracker"],
+  ["status.png", "Customer status"],
+  ["admin-rules.png", "Dated admin rules"],
+  ["mobile.png", "Mobile layout"],
+];
+const screenshotsDir = resolve(root, "docs", "screenshots");
+const missingScreenshots = [];
+
+function embedScreenshot(imagePath, caption) {
+  const resolvedImagePath = resolve(imagePath);
+  const relativePath = relative(screenshotsDir, resolvedImagePath);
+  if (relativePath.startsWith("..") || isAbsolute(relativePath))
+    throw new Error(`Screenshot path is outside docs/screenshots: ${imagePath}`);
+
+  const bytes = readFileSync(resolvedImagePath);
+  if (
+    bytes.length < 24 ||
+    bytes.toString("ascii", 1, 4) !== "PNG" ||
+    bytes.toString("ascii", 12, 16) !== "IHDR"
+  )
+    throw new Error(`Screenshot is not a valid PNG: ${imagePath}`);
+  const width = bytes.readUInt32BE(16);
+  const height = bytes.readUInt32BE(20);
+  const maxWidth = 5_303_520;
+  const maxHeight = 5_943_600;
+  const scale = Math.min(maxWidth / width, maxHeight / height);
+  const id = imageRelationships.length + 1;
+  const name = basename(resolvedImagePath);
+  imageRelationships.push({ id, name, path: resolvedImagePath });
+  blocks.push(paragraph(caption, { size: 18, before: 100, after: 40 }));
+  blocks.push(
+    image(
+      id,
+      name,
+      Math.round(width * scale),
+      Math.round(height * scale),
+    ),
+  );
+}
+
+function addScreenshotSection() {
+  blocks.push(paragraph("Screenshots", { bold: true, size: 26, before: 180, after: 110 }));
+  for (const [fileName, caption] of screenshotFiles) {
+    const imagePath = join(screenshotsDir, fileName);
+    if (!existsSync(imagePath)) {
+      missingScreenshots.push(`docs/screenshots/${fileName}`);
+      continue;
+    }
+    embedScreenshot(imagePath, caption);
+  }
+  if (missingScreenshots.length) {
+    const note = `Screenshots not present; no images were fabricated: ${missingScreenshots.join(", ")}`;
+    blocks.push(paragraph(note, { size: 20 }));
+    console.warn(note);
+  } else {
+    console.log("All seven docs/screenshots PNGs were embedded.");
+  }
+}
 
 for (const line of source.split("\n")) {
   if (!line.trim()) continue;
+  if (line.trim() === "## Screenshots") {
+    addScreenshotSection();
+    continue;
+  }
   const imageMatch = /^!\[([^\]]*)\]\(([^)]+)\)$/.exec(line);
   if (imageMatch) {
-    const imagePath = resolve(root, "docs", imageMatch[2]);
-    if (!imagePath.startsWith(resolve(root, "docs", "screenshots") + "\\"))
-      throw new Error(`Screenshot path is outside docs/screenshots: ${imageMatch[2]}`);
-    const bytes = readFileSync(imagePath);
-    if (
-      bytes.length < 24 ||
-      bytes.toString("ascii", 1, 4) !== "PNG" ||
-      bytes.toString("ascii", 12, 16) !== "IHDR"
-    )
-      throw new Error(`Screenshot is not a valid PNG: ${imageMatch[2]}`);
-    const width = bytes.readUInt32BE(16);
-    const height = bytes.readUInt32BE(20);
-    const maxWidth = 5_303_520;
-    const maxHeight = 5_943_600;
-    const scale = Math.min(maxWidth / width, maxHeight / height);
-    const id = imageRelationships.length + 1;
-    const name = basename(imagePath);
-    imageRelationships.push({ id, name, path: imagePath });
-    blocks.push(paragraph(imageMatch[1], { size: 18, before: 100, after: 40 }));
-    blocks.push(
-      image(
-        id,
-        name,
-        Math.round(width * scale),
-        Math.round(height * scale),
-      ),
-    );
+    embedScreenshot(resolve(root, "docs", imageMatch[2]), imageMatch[1]);
     continue;
   }
   if (line.startsWith("# ")) {

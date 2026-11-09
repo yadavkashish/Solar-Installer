@@ -97,29 +97,20 @@ Next: verify a fresh local end-to-end session with an isolated PostgreSQL databa
 
 ## Screenshots
 
-Fresh screenshots could not be captured: this environment has no local PostgreSQL service, and the live reviewer workflow has not been provisioned/verified. No stale screenshots are embedded. Capture these current, synthetic-data-only PNGs after local setup and login:
-
-1. `docs/screenshots/01-lead-form.png` — homeowner intake with bill upload.
-2. `docs/screenshots/02-bill-review.png` — bill image beside editable extracted suggestions.
-3. `docs/screenshots/03-lead-score.png` — high, tenant-low and low-usage examples.
-4. `docs/screenshots/04-quote-story.png` — dated-rule quote and payback.
-5. `docs/screenshots/05-project-tracker.png` — project stage and mock notification.
-6. `docs/screenshots/06-customer-status.png` — public synthetic status link.
-7. `docs/screenshots/07-admin-rules.png` — not capturable until a rules UI exists; show the dated rule records in a local DB viewer instead and label the limitation.
-8. `docs/screenshots/08-mobile-375px.png` — intake and tracker at a 375 px viewport.
+The TDD generator embeds only these real PNGs when present under `docs/screenshots/`: `lead-form.png`, `bill-review.png`, `quote.png`, `tracker.png`, `status.png`, `admin-rules.png`, and `mobile.png`. Missing files are listed in the generated document and reported during generation; no images are fabricated.
 
 ## Verification and deployment record
 
 Latest local code checks:
 
 - `npm run typecheck` — passed.
-- `npm test` — passed: 18 files, 61 tests, including synthetic fixture calculations and the non-loopback seed guard.
+- `npm test` — passed: 18 files, 62 tests, including synthetic fixture calculations and the remote seed opt-in guard.
 - `npm run build:production` — passed: Prisma Client generation, Vite production build and API TypeScript build.
 - `git diff --check` — passed.
 
-The local database-backed seed, login, repeat-seed execution, full workflow and screenshots remain unverified because this environment has no local PostgreSQL service. The seed script refuses non-loopback database URLs; no migration or seed was run against production.
+The local database-backed seed, login, repeat-seed execution, full workflow and screenshots remain unverified because this environment has no local PostgreSQL service. The seed script defaults to loopback databases and requires a one-invocation explicit override for remote seeding; no migration or seed was run against production.
 
-The first check after the user reported Render live was stale: `/healthz` had no commit field and `/api/version` returned `d635dfdba922d6e3e785ffaf43cf98b4519cef91`. After the user manually deployed, both endpoints returned the expected app-source commit `3fbff3b0f01e6e9c9b42a9faa7716592f73f183d`: `/healthz` returned `{"ok":true,"commit":"3fbff3b0f01e6e9c9b42a9faa7716592f73f183d"}` and `/api/version` returned the matching commit. The final follow-up commit only records this verification in the documents; it changes no application code. Live provider success remains unverified.
+**Deployment status:** Code verified live at 3fbff3b; later commits are documentation-only. At that recorded check, this was true of the commits since the verified source; the current change set includes seed/generator code and is not verified live. Do not treat current HEAD as deployed unless the maintainer confirms a new deployment.
 
 ## Assumptions
 
@@ -130,4 +121,4 @@ The first check after the user reported Render live was stale: `/healthz` had no
 
 ## Local setup
 
-Follow [deployment.md](../deployment.md). The seed creates only the three marked sample leads and explicitly named synthetic demo accounts on a loopback PostgreSQL database; it never deletes or resets records.
+Follow [deployment.md](../deployment.md). The seed creates only the three marked sample leads and explicitly named synthetic demo accounts. It uses loopback PostgreSQL by default; a maintainer may enable a one-time remote seed invocation with the documented opt-in. The seed never deletes or resets records.

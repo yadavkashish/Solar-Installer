@@ -5,6 +5,7 @@ import {
   demoPassword,
   demoRules,
   demoSalesEmail,
+  canSeedDatabase,
   isLoopbackDatabaseUrl,
   sampleAssessment,
   sampleQuoteSnapshot,
@@ -40,6 +41,19 @@ describe("synthetic reviewer seed", () => {
       false,
     );
     expect(isLoopbackDatabaseUrl(undefined)).toBe(false);
+  });
+
+  it("allows remote seeding only with the exact explicit opt-in", () => {
+    const remote = "postgresql://db.example.com/suryapath";
+    expect(canSeedDatabase(remote, undefined)).toBe(false);
+    expect(canSeedDatabase(remote, "TRUE")).toBe(false);
+    expect(canSeedDatabase(remote, "1")).toBe(false);
+    expect(canSeedDatabase(remote, "true")).toBe(true);
+    expect(canSeedDatabase("postgresql:///suryapath", "true")).toBe(false);
+    expect(canSeedDatabase("postgresql://localhost/suryapath", undefined)).toBe(
+      true,
+    );
+    expect(canSeedDatabase(undefined, "true")).toBe(false);
   });
 
   it("seeds dated editable calculation rules and a valid synthetic quote", () => {

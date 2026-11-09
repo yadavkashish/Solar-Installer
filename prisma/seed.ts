@@ -7,7 +7,7 @@ import {
   demoPassword,
   demoRules,
   demoSalesEmail,
-  isLoopbackDatabaseUrl,
+  canSeedDatabase,
   sampleAssessment,
   sampleQuoteSnapshot,
   sampleStatusToken,
@@ -24,9 +24,9 @@ if (normalizedDemoStatusHash !== sampleStatusTokenHash)
   throw new Error("Synthetic customer status token hash mismatch.");
 
 async function main() {
-  if (!isLoopbackDatabaseUrl(process.env.DATABASE_URL)) {
+  if (!canSeedDatabase(process.env.DATABASE_URL, process.env.ALLOW_REMOTE_SEED)) {
     throw new Error(
-      "Refusing to seed a non-local database. Use a localhost DATABASE_URL; production seeding requires explicit approval and is not supported by this script.",
+      "Refusing to seed a non-local database. Use a localhost DATABASE_URL or explicitly set ALLOW_REMOTE_SEED=true for this one invocation.",
     );
   }
 
@@ -124,57 +124,61 @@ async function main() {
       ownerId: homeowner.id,
       isSample: true,
     };
-    await db.lead.upsert({
-      where: { id: lead.id },
-      create: {
-        ...values,
-        assessment: { create: assessment },
-      },
-      update: {
-        ...values,
-        assessment: {
-          upsert: {
-            create: assessment,
-            update: assessment,
+    if (!existing) {
+      await db.lead.create({
+        data: {
+          ...values,
+          assessment: { create: assessment },
+        },
+      });
+    } else if (existing.billStatus !== "CONFIRMED") {
+      await db.lead.update({
+        where: { id: lead.id },
+        data: {
+          ...values,
+          assessment: {
+            upsert: {
+              create: assessment,
+              update: assessment,
+            },
           },
         },
-      },
-    });
+      });
+    }
   }
 
   const lead = await db.lead.findUniqueOrThrow({
     where: { id: "LD-30881" },
   });
-  const survey = await db.survey.upsert({
-    where: { leadId: lead.id },
-    update: {
-      usableRoofArea: 40,
-      findings: "Synthetic demo survey; not a structural assessment.",
-      surveyedById: sales.id,
-    },
-    create: {
-      leadId: lead.id,
-      usableRoofArea: 40,
-      findings: "Synthetic demo survey; not a structural assessment.",
-      surveyedById: sales.id,
-    },
-  });
+  let survey = await db.survey.findUnique({ where: { leadId: lead.id } });
+  if (!survey) {
+    survey = await db.survey.create({
+      data: {
+        leadId: lead.id,
+        usableRoofArea: 40,
+        findings: "Synthetic demo survey; not a structural assessment.",
+        surveyedById: sales.id,
+      },
+    });
+  }
   const snapshot = sampleQuoteSnapshot();
-  await db.quote.upsert({
+  const existingQuote = await db.quote.findUnique({
     where: { leadId_version: { leadId: lead.id, version: 1 } },
-    update: { snapshot },
-    create: {
-      id: "Q-DEMO-30881",
-      leadId: lead.id,
-      version: 1,
-      snapshot,
-      createdAt: seededAt,
-    },
   });
+  if (!existingQuote)
+    await db.quote.create({
+      data: {
+        id: "Q-DEMO-30881",
+        leadId: lead.id,
+        version: 1,
+        snapshot,
+        createdAt: seededAt,
+      },
+    });
 
   const project = await db.project.upsert({
     where: { leadId: lead.id },
-    update: { stage: "INSTALLATION_SCHEDULED" },
+    update: {},
     create: { leadId: lead.id, stage: "INSTALLATION_SCHEDULED" },
   });
   for (const stage of ["SITE_SURVEY_COMPLETE", "INSTALLATION_SCHEDULED"]) {

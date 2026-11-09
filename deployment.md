@@ -28,7 +28,7 @@ Live app: https://solar-installer.onrender.com
    npm run db:seed
    ```
 
-   The seed refuses any non-loopback database URL. It never resets or deletes records. It creates/updates only its explicitly synthetic users and three sample lead IDs, dated demo rules, one quote, one tracker and a public demo status link. If an ID exists as a non-sample record, the seed stops rather than replacing it.
+   The seed refuses any non-loopback database URL by default. It never resets or deletes records. It creates/updates only its explicitly synthetic users and three sample lead IDs, dated demo rules, one quote, one tracker and a public demo status link. Confirmed bill records are preserved; if a sample ID exists as a non-sample record, the seed stops rather than replacing it.
 
 4. Start the API and web UI in separate terminals:
 
@@ -49,6 +49,10 @@ Live app: https://solar-installer.onrender.com
    ```
 
 The repo's `docker-compose.yml` uses a local-only development database. Never point `migrate` or `db:seed` at production unless you have separately approved that operation.
+
+### One-time maintainer remote seed
+
+The seed is loopback-only unless the maintainer explicitly opts in for that one invocation. For the one-time synthetic demo provisioning step, set `ALLOW_REMOTE_SEED` only in the maintainer's shell/process environment, run `npm run db:seed` once against the already-configured intended database, then remove the override immediately. Do not put it in `.env`, Render environment settings, CI, or a persistent shell profile. The seed itself accepts the override only when its value is exactly `true`. Review the target database and existing demo IDs before proceeding; no migration is run by the seed. Repeat seeding is idempotent and does not reset or delete records.
 
 ## Synthetic reviewer data
 
@@ -96,7 +100,7 @@ For the existing Render service, confirm these settings manually in the dashboar
 8. Save, deploy the latest `master` commit, and wait for Render to show the service as live.
 9. Check `https://solar-installer.onrender.com/healthz` and `https://solar-installer.onrender.com/api/version`. Both should include a `commit` matching the pushed `master` HEAD. `/api/healthz` separately checks database connectivity.
 
-The first live check after the user reported deployment was stale: `/healthz` had no `commit` field and `/api/version` returned `d635dfdba922d6e3e785ffaf43cf98b4519cef91`. After a subsequent manual deploy, both endpoints returned app-source commit `3fbff3b0f01e6e9c9b42a9faa7716592f73f183d`. The final follow-up commit only records this verification in the documents and changes no application code. After any future application-code push, compare both endpoints with that release's source commit again.
+Code verified live at `3fbff3b` on the last recorded check; commits through the then-current `2d74334` were documentation-only. That check predates the current seed/generator code changes. Current HEAD has not been verified live; after deployment, compare both endpoints with the pushed source commit.
 
 ## Environment variable names
 
@@ -109,6 +113,6 @@ Render hosts the Node service. Neon PostgreSQL is the expected hosted database, 
 ## Known limitations and verification status
 
 - Database-backed local login, seed idempotence by repeat execution, the full lead-to-tracker walkthrough, and browser screenshots were not verified in this environment because local PostgreSQL/Docker was unavailable. The included deterministic seed-data tests do not replace running the seed twice against a disposable database.
-- The seed intentionally refuses non-loopback databases. The public Render service has not been seeded with these demo credentials; do not assume the documented sample login works on the live service until an authorized, safe provisioning method has been agreed and verified.
+- The seed refuses remote databases unless a maintainer explicitly enables `ALLOW_REMOTE_SEED` for one invocation. The public Render service has not been seeded with these demo credentials; do not assume the documented sample login works on the live service until the maintainer runs and verifies the one-time seed.
 - The rules are persisted and dated, but there is no admin rule editor. English/Hindi/Marathi coverage is partial. Bill PDF extraction and real outbound messaging are not implemented.
 - Live Groq/Cloudinary success, current policy eligibility, measured business outcomes, and a Render deployment of this source remain unverified.
