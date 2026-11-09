@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { normaliseStageId, stageLabel } from "./project-stages.js";
 
 export const createStatusToken = () =>
   crypto.randomBytes(32).toString("base64url");
@@ -17,9 +18,11 @@ export function customerStatus(project: {
   events: { stage: string; createdAt: Date }[];
 }) {
   return {
-    stage: project.stage,
+    stage: stageLabel(project.stage) ?? "Project not started",
+    stageId: normaliseStageId(project.stage),
     timeline: project.events.map((event) => ({
-      stage: event.stage,
+      stage: stageLabel(event.stage) ?? event.stage,
+      stageId: normaliseStageId(event.stage),
       createdAt: event.createdAt,
     })),
   };

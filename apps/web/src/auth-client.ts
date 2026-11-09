@@ -8,6 +8,7 @@ export class SessionExpired extends Error {}
 export class ApiError extends Error {
   status?: number;
   issues?: Record<string, string[]>;
+  workflow?: unknown;
 }
 export async function api(path: string, options: RequestInit = {}) {
   const method = (options.method ?? "GET").toUpperCase();
@@ -28,6 +29,7 @@ export async function api(path: string, options: RequestInit = {}) {
     const error = new ApiError(data?.error || "Request failed");
     error.status = response.status;
     error.issues = data?.issues;
+    error.workflow = data?.workflow;
     throw error;
   }
   return data;

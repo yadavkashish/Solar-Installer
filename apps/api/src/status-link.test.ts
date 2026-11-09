@@ -37,7 +37,14 @@ describe("customer status links", () => {
     };
     expect(customerStatus(project)).toEqual({
       stage: "Installed",
-      timeline: [{ stage: "Installed", createdAt: new Date("2026-01-01") }],
+      stageId: "INSTALLED",
+      timeline: [
+        {
+          stage: "Installed",
+          stageId: "INSTALLED",
+          createdAt: new Date("2026-01-01"),
+        },
+      ],
     });
   });
 });

@@ -20,8 +20,9 @@ import {
   LeadOwnershipError,
   SurveyCapacityError,
   SurveyRequiredError,
-  stages,
+  ProjectTransitionError,
 } from "./repository.js";
+import { PROJECT_STAGES, type ProjectStageId } from "./project-stages.js";
 import {
   csrf,
   logout,
@@ -603,7 +604,7 @@ app.post(
     res.json({ document: billDocumentResponse(doc) });
   },
 );
-app.post(
+app.put(
   "/api/leads/:id/survey",
   session,
   csrf,
@@ -730,19 +731,35 @@ app.post(
   role("SALES"),
   async (req, res) => {
     const input = z
-      .object({ stage: z.enum(stages as [string, ...string[]]) })
-      .safeParse(req.body);
-    if (!input.success) return res.status(400).json({ error: "Invalid stage" });
-    try {
-      res.json(
-        await persistStage(
-          req.params.id as string,
-          input.data.stage,
-          req.principal!.id,
+      .object({
+        nextStageId: z.enum(
+          PROJECT_STAGES.map((stage) => stage.id) as [ProjectStageId, ...ProjectStageId[]],
         ),
+        expectedStageId: z
+          .enum(
+            PROJECT_STAGES.map((stage) => stage.id) as [ProjectStageId, ...ProjectStageId[]],
+          )
+          .nullable(),
+      })
+      .safeParse(req.body);
+    if (!input.success)
+      return res.status(400).json({ error: "Invalid project transition request." });
+    try {
+      await persistStage(
+        req.params.id as string,
+        input.data.nextStageId,
+        req.principal!.id,
+        input.data.expectedStageId,
       );
+      res.json({ lead: await findLead(req.params.id as string) });
     } catch (e: any) {
-      res.status(409).json({ error: e.message });
+      if (e?.code === "P2025") return res.sendStatus(404);
+      if (e instanceof ProjectTransitionError)
+        return res.status(e.stale ? 409 : 422).json({
+          error: e.message,
+          workflow: e.workflow,
+        });
+      throw e;
     }
   },
 );

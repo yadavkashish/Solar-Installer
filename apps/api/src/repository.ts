@@ -4,11 +4,27 @@ import { PrismaClient } from "@prisma/client";
 import argon2 from "argon2";
 import { z } from "zod";
 import { calculate, recommend, score, sizing } from "./engine.js";
+import {
+  normaliseStageId,
+  PROJECT_STAGES,
+  projectWorkflow,
+  stageTransitionDecision,
+  type ProjectStageId,
+} from "./project-stages.js";
 export const db = new PrismaClient();
 export class RuleConfigurationError extends Error {}
 export class LeadOwnershipError extends Error {}
 export class SurveyRequiredError extends Error {}
 export class SurveyCapacityError extends Error {}
+export class ProjectTransitionError extends Error {
+  constructor(
+    message: string,
+    readonly workflow: ReturnType<typeof projectWorkflow>,
+    readonly stale = false,
+  ) {
+    super(message);
+  }
+}
 const calculationSchema = z.object({
   capacityKw: z.number(),
   grossCost: z.number(),
@@ -192,6 +208,21 @@ const asLead = (l: any) => ({
       )
     : null,
   quote: l.quotes?.[0] ? quoteView(l.quotes[0]) : undefined,
+  project: l.project
+    ? {
+        ...l.project,
+        stage: normaliseStageId(l.project.stage),
+        events: l.project.events.map((event: any) => ({
+          ...event,
+          stage: normaliseStageId(event.stage),
+        })),
+      }
+    : null,
+  projectWorkflow: projectWorkflow({
+    currentStageId: l.project?.stage,
+    hasQuote: Boolean(l.quotes?.[0]),
+    hasSurvey: Boolean(l.survey),
+  }),
   createdBy: l.createdBy ?? null,
 });
 export async function listLeads() {
@@ -341,33 +372,54 @@ export async function persistQuote(leadId: string, kw: number) {
     return quoteView(quote);
   });
 }
-export const stages = [
-  "Advance recorded (demo)",
-  "Site survey complete",
-  "Installation scheduled",
-  "Installed",
-  "Net-metering submitted",
-  "Commissioned",
-  "Subsidy credited",
-];
 export async function persistStage(
   leadId: string,
-  next: string,
+  next: ProjectStageId,
   actorId: string,
+  expectedStageId: ProjectStageId | null,
 ) {
   return db.$transaction(async (tx) => {
+    const lead = await tx.lead.findUnique({
+      where: { id: leadId },
+      include: { survey: true, quotes: { take: 1 } },
+    });
+    if (!lead) throw Object.assign(new Error("Lead not found"), { code: "P2025" });
     let p = await tx.project.findUnique({
       where: { leadId },
       include: { events: true },
     });
+    const currentStageId = normaliseStageId(p?.stage);
+    const decision = stageTransitionDecision({
+      currentStageId,
+      expectedStageId,
+      nextStageId: next,
+      hasQuote: lead.quotes.length > 0,
+      hasSurvey: Boolean(lead.survey),
+    });
+    if (!decision.ok)
+      throw new ProjectTransitionError(
+        decision.message,
+        decision.workflow,
+        decision.stale,
+      );
     if (!p)
-      p = await tx.project.create({
-        data: { leadId, stage: "NOT_STARTED" },
+      p = await tx.project.upsert({
+        where: { leadId },
+        create: { leadId, stage: "NOT_STARTED" },
+        update: {},
         include: { events: true },
       });
-    const ci = p.stage === "NOT_STARTED" ? -1 : stages.indexOf(p.stage);
-    if (stages.indexOf(next) !== ci + 1)
-      throw Error("Invalid stage transition.");
+    const storedCurrent = p.stage;
+    const advanced = await tx.project.updateMany({
+      where: { id: p.id, stage: storedCurrent },
+      data: { stage: next },
+    });
+    if (advanced.count !== 1)
+      throw new ProjectTransitionError(
+        "Project stage changed elsewhere. Refresh and try the currently allowed action.",
+        decision.workflow,
+        true,
+      );
     await tx.stageEvent.create({
       data: { projectId: p.id, stage: next, actorId },
     });
@@ -388,7 +440,7 @@ export async function persistStage(
     });
     return tx.project.update({
       where: { id: p.id },
-      data: { stage: next },
+      data: {},
       include: { events: true },
     });
   });

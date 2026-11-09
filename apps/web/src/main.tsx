@@ -34,6 +34,17 @@ const leadTabs: { id: LeadTab; label: string }[] = [
   { id: "quote", label: "quote" },
   { id: "project", label: "project" },
 ];
+const projectStageLabels: Record<string, string> = {
+  ADVANCE_RECORDED: "Advance recorded (demo)",
+  SITE_SURVEY_COMPLETE: "Site survey complete",
+  INSTALLATION_SCHEDULED: "Installation scheduled",
+  INSTALLED: "Installed",
+  NET_METERING_SUBMITTED: "Net-metering submitted",
+  COMMISSIONED: "Commissioned",
+  SUBSIDY_CREDITED: "Subsidy credited",
+};
+const projectStageLabel = (id: string | null | undefined) =>
+  (id ? projectStageLabels[id] : null) ?? "Project not started";
 const rupee = (n: number) => "₹" + n.toLocaleString("en-IN");
 function LanguagePicker({
   language,
@@ -197,17 +208,17 @@ function List({
           >
             <option value="ALL">All stages</option>
             <option value="NOT_STARTED">Not started</option>
-            <option value="Advance recorded (demo)">Advance recorded</option>
-            <option value="Site survey complete">Site survey complete</option>
-            <option value="Installation scheduled">
+            <option value="ADVANCE_RECORDED">Advance recorded</option>
+            <option value="SITE_SURVEY_COMPLETE">Site survey complete</option>
+            <option value="INSTALLATION_SCHEDULED">
               Installation scheduled
             </option>
-            <option value="Installed">Installed</option>
-            <option value="Net-metering submitted">
+            <option value="INSTALLED">Installed</option>
+            <option value="NET_METERING_SUBMITTED">
               Net-metering submitted
             </option>
-            <option value="Commissioned">Commissioned</option>
-            <option value="Subsidy credited">Subsidy credited</option>
+            <option value="COMMISSIONED">Commissioned</option>
+            <option value="SUBSIDY_CREDITED">Subsidy credited</option>
           </select>
         </label>
       </section>
@@ -784,6 +795,8 @@ function Detail({
     [kw, setKw] = useState(suggestedCapacity(x)),
     [quoteBusy, setQuoteBusy] = useState(false),
     [quoteError, setQuoteError] = useState(""),
+    [stageBusy, setStageBusy] = useState(false),
+    [stageError, setStageError] = useState(""),
     qc = useQueryClient();
   useEffect(() => {
     setL(x);
@@ -814,24 +827,29 @@ function Detail({
     }
   };
   const advance = async () => {
-    const s = [
-        "Advance recorded (demo)",
-        "Site survey complete",
-        "Installation scheduled",
-        "Installed",
-        "Net-metering submitted",
-        "Commissioned",
-        "Subsidy credited",
-      ],
-      i = l.project?.stage ? s.indexOf(l.project.stage) : -1;
+    const next = l.projectWorkflow?.allowedNextTransitions?.[0];
+    if (!next) return;
+    setStageBusy(true);
+    setStageError("");
     try {
-      const p = await api("/leads/" + l.id + "/stage", {
+      const result = await api("/leads/" + l.id + "/stage", {
         method: "POST",
-        body: JSON.stringify({ stage: s[i + 1] }),
+        body: JSON.stringify({
+          nextStageId: next.id,
+          expectedStageId: l.projectWorkflow?.currentStage?.id ?? null,
+        }),
       });
-      setL({ ...l, project: p });
+      setL(result.lead);
+      qc.invalidateQueries({ queryKey: ["lead", l.id] });
+      qc.invalidateQueries({ queryKey: ["leads"] });
     } catch (e: any) {
-      alert(e.message);
+      if (e instanceof SessionExpired) onSessionExpired();
+      else {
+        setStageError(e.message || "Project stage could not be updated.");
+        if (e.workflow) setL({ ...l, projectWorkflow: e.workflow });
+      }
+    } finally {
+      setStageBusy(false);
     }
   };
   return (
@@ -1010,17 +1028,33 @@ function Detail({
           <article className="card">
             <h2>{t.project}</h2>
             <p>
-              <b>{l.project?.stage || t.notStarted}</b>
+              <b>{projectStageLabel(l.projectWorkflow?.currentStage?.id)}</b>
             </p>
             {(l.project?.events || []).map((e: any) => (
-              <p key={e.id ?? `${e.stage}-${e.createdAt}`}>✓ {e.stage}</p>
+              <p key={e.id ?? `${e.stage}-${e.createdAt}`}>✓ {projectStageLabel(e.stage)}</p>
             ))}
-            <button className="primary" onClick={advance}>
-              {t.advanceStage}
-            </button>
+            {role === "SALES" && l.projectWorkflow?.allowedNextTransitions?.[0] && (
+              <button className="primary" disabled={stageBusy} onClick={advance}>
+                {stageBusy
+                  ? "Saving stage…"
+                  : `Advance to ${l.projectWorkflow.allowedNextTransitions[0].label}`}
+              </button>
+            )}
+            {l.projectWorkflow?.unmetPrerequisites?.map((item: any) => (
+              <p className="guardrail-note" key={item.code}>
+                {item.message}{" "}
+                {role === "SALES" && (
+                  <button className="secondary" onClick={() => navigate(leadPath(l.id, "quote"))}>
+                    {item.action === "SURVEY" ? "Record survey" : "Open quote"}
+                  </button>
+                )}
+              </p>
+            ))}
+            {l.projectWorkflow?.isFinal && <p>This project has reached its final recorded stage.</p>}
+            {stageError && <p className="error">{stageError}</p>}
             <small>
-              Advance recorded is a mock payment event. Every successful stage
-              creates a mock notification and audit record.
+              Current state comes from the saved project record. Every successful
+              transition creates one mock notification and audit record.
             </small>
           </article>
           {role === "SALES" ? (
