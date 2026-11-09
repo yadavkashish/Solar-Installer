@@ -1,4 +1,10 @@
-# Deployment guide
+# Deployment guide — Surya Path
+
+Repository: https://github.com/yadavkashish/Solar-Installer
+
+Live service: https://solar-installer.onrender.com
+
+Release reference: `09fb513527b753393744dee4ac19789c1f80026e` (`Improve survey and quote submission feedback`). The deployed service is a single Node web service: Express serves the built Vite application and its `/api` routes on the same origin.
 
 ## Prerequisites
 
@@ -15,7 +21,12 @@ npm run dev -w @surya/api
 npm run dev -w @surya/web
 ```
 
-Open http://localhost:5173. Synthetic demo accounts are `sales@surya.demo` and `prashant@surya.demo`; their development-only password is `DemoPass!2026`.
+Open `http://localhost:5173`. The idempotent synthetic seed provides these development-only accounts:
+
+| Role | Email | Password |
+| --- | --- | --- |
+| Sales | `sales@surya.demo` | `DemoPass!2026` |
+| Homeowner | `prashant@surya.demo` | `DemoPass!2026` |
 
 ## Production: one Node web service
 
@@ -39,18 +50,18 @@ npx prisma migrate deploy
 npm run db:seed
 ```
 
-## Checks
+## Recorded checks
 
-Latest local result (09 Nov 2026): `npx prisma validate`, `npm run typecheck`, `npm run test` (10 files, 31 tests), and `npm run build` passed. The pincode/assessment-provenance forward migration was applied successfully and `npm run db:seed` ran twice successfully without resetting data. A later read-only `prisma migrate status` retry hit intermittent Neon `P1001`; no reset or schema change followed. A real synthetic PNG reached Cloudinary and was downloaded privately; Groq extraction timed out and correctly produced the manual-review path.
+At the release reference, the local commands `npm run typecheck`, `npm test` (13 files, 41 tests), and `npm run build:production` passed on 09 Nov 2026. The pincode/assessment-provenance migration applied successfully to Neon and `npm run db:seed` ran twice without resetting data. An earlier live synthetic PNG reached Cloudinary and was downloaded privately; the bounded Groq extraction request timed out and correctly produced the manual-review path. Automated provider tests use mocks. This update does not claim a new live provider request.
 
 ## Environment
 
-Enter these names and their values in the host’s Environment page; never commit a `.env` file: `DATABASE_URL`, `SESSION_SECRET`, `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`, `GROQ_API_KEY`, `GROQ_VISION_MODEL`, `NODE_ENV=production`, and `PUBLIC_ORIGIN=https://your-service.onrender.com`. Render provides `PORT`; do not set it manually. Set `WEB_ORIGIN` only if a separate browser origin must call the API; leave it unset for this same-origin deployment. `PUBLIC_ORIGIN` is required in production so customer status links never contain localhost. JPEG/PNG are supported for extraction; PDF extraction is intentionally unsupported and users can enter bill details manually.
+Enter values for these names in the host’s Environment page; never commit a `.env` file: `DATABASE_URL`, `SESSION_SECRET`, `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`, `GROQ_API_KEY`, `GROQ_VISION_MODEL`, `NODE_ENV`, and `PUBLIC_ORIGIN`. Set `NODE_ENV=production` and `PUBLIC_ORIGIN=https://solar-installer.onrender.com`. Render provides `PORT`; do not set it manually. Set `WEB_ORIGIN` only if a separate browser origin must call the API; leave it unset for this same-origin deployment. `PUBLIC_ORIGIN` is required in production so customer status links never contain localhost. JPEG/PNG are supported for extraction; PDF extraction is intentionally unsupported and users can enter bill details manually.
 
 ## Hosting
 
-Use a Render **Web Service**, connect the GitHub repository, choose branch `master`, set Build Command to `npm ci && npm run build:production`, Start Command to `npm run start`, and Health Check Path to `/healthz`. Apply `npx prisma migrate deploy` from an authorised environment before the first service release (Render’s pre-deploy command is not available on the Free web-service plan). Render’s Environment page is where the variables above are entered. Free web services are available, but they spin down after 15 minutes idle and use an ephemeral filesystem; this application keeps persistence in Neon and private bills in Cloudinary, not local storage. Bills are validated from memory, document metadata is persisted, and provider failures preserve the document for retry/manual entry. Quote PDFs use the issued snapshot; dated price, generation and subsidy rules are selected at issue time. Payment, WhatsApp/SMS, DISCOM and subsidy submission are mocked; no real external action occurs.
+Use a Render **Web Service**, connect the GitHub repository, choose branch `master`, set Build Command to `npm ci && npm run build:production`, Start Command to `npm run start`, and Health Check Path to `/healthz`. Apply `npx prisma migrate deploy` from an authorised environment before the first service release and for later forward migrations. Render’s Environment page is where the variables above are entered. This application keeps persistence in Neon and private bills in Cloudinary, not local storage. Bills are validated from memory, document metadata is persisted, and provider failures preserve the document for retry/manual entry. Quote PDFs use the issued snapshot; dated price, generation and subsidy rules are selected at issue time. Payment, WhatsApp/SMS, DISCOM and subsidy submission are mocked; no real external action occurs.
 
-## Remaining setup blockers
+## Known limitations
 
-Successful live Groq extraction/qualification remains unverified: the configured extraction request timed out, although the authenticated Cloudinary upload/private-download/manual-review path was exercised. Automated provider tests use mocks. Full Playwright browser regression coverage and public deployment remain outstanding.
+The deployed public origin is listed above. Successful live Groq extraction/qualification remains unverified because the recorded bounded extraction request timed out; the authenticated Cloudinary upload/private-download/manual-review path was exercised. Automated provider tests use mocks. Full Playwright browser regression coverage remains a future improvement. PDF bill extraction is intentionally unsupported; request a JPEG/PNG bill or use manual entry.

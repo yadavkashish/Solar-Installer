@@ -1,48 +1,69 @@
 # Technical Design Document — Surya Path
 
-**Repository URL: https://github.com/yadavkashish/Solar-Installer**
-**Live URL: Not deployed.**
+**GitHub:** https://github.com/yadavkashish/Solar-Installer
 
-## Current implementation and verification (09 Nov 2026)
+**Live application:** https://solar-installer.onrender.com
 
-This section supersedes historical planning notes below. Prisma/PostgreSQL persists leads, sessions, private bill metadata, assessments, dated rules, immutable quotes, projects, notifications, audits and hashed status tokens. The lead schema now stores nullable pincode for legacy records; new intake requires a six-digit pincode, owner/tenant selection, a selectable roof type, roof area, monthly bill and a JPEG/PNG bill. Roof-type options (RCC concrete, metal sheet, tile roof, other/needs survey) are assumptions, not engineering certification.
+**Deployed release reference:** `09fb513527b753393744dee4ac19789c1f80026e` — *Improve survey and quote submission feedback* (09 Nov 2026).
 
-The intake creates a lead once, then uploads the bill privately; upload failure can be retried without creating a duplicate lead. Groq bill extraction is Zod-validated. A provider `unreadable` result, invalid response, timeout or failure stores `MANUAL_REQUIRED`, preserves the private bill and presents replacement/manual-review paths. Human-confirmed bill values remain distinct from original extraction.
+## Purpose and scope
 
-After bill confirmation, Groq qualification receives only ownership, roof type/area, tariff, monthly units and bill amount. It does not receive customer name, contact details, consumer number or pincode. Provider output is validated and persisted with source, model and assessment time. Provider failures persist a labelled baseline fallback. Deterministic guardrails retain short sales calls for tenants and low-readiness leads; pricing, subsidy, generation and payback remain deterministic.
+Surya Path turns solar enquiries into an accountable workflow: homeowner intake, protected bill review, transparent qualification, sales survey, immutable quote/PDF, ordered project progress, and a customer-safe status view. It replaces fragmented WhatsApp/Excel capture; it does not provide payments, DISCOM filing, subsidy applications, engineering approval, or legal/policy advice.
 
-English, Hindi and Marathi selection is available before sign-in, in authenticated navigation, intake, bill review, quote/project headings and customer-status views. Numeric values, identifiers and units remain unchanged.
+## Architecture
 
-The sales workspace uses the same lead flow as homeowner intake. Sales staff can add a customer lead; the API creates or matches a HOMEOWNER account for the customer, records `SALES_CREATED` provenance and the staff creator separately, and never stores the salesperson as the homeowner. Search supports customer name/lead ID, readiness, and project-stage filters. Brief-supplied fictional scenarios are explicitly marked as samples; repeat seeding preserves confirmed bill values. The UI displays the persisted assessment source (Groq-assisted or baseline fallback) and explains why deterministic short-call guardrails can override a high band.
+The deployed service is one Node process. React/Vite provides the responsive browser UI; Express serves its production build and `/api` on the same origin. The Express API validates input with Zod, enforces role/record ownership, performs deterministic calculation, and exposes a JSON API. Prisma connects the API to Neon PostgreSQL. Cloudinary stores authenticated bill images and Groq is used server-side for image extraction and qualification assistance.
 
-Actual checks: `npx prisma validate`, `npm run typecheck`, `npm run test` (11 files, 33 tests) and `npm run build:production` passed. The forward migration adding sales-lead provenance and sample markers applied successfully to Neon; the seed ran twice successfully. A live synthetic lead was created, a private PNG was uploaded to Cloudinary and downloaded server-side. Groq extraction timed out at its bounded limit and correctly entered manual review. Successful live extraction/qualification, Playwright/browser interaction checks, and public deployment remain unverified.
+The primary flow is: intake → protected JPEG/PNG bill upload → optional AI extraction → human confirmation → qualification/sizing → sales survey → dated-rule quote snapshot/PDF → ordered project transitions → authenticated homeowner or customer-safe token status view.
 
-## Problem and core scope
+## Data model and persistence
 
-Surya Path replaces fragmented WhatsApp/Excel lead capture with a focused workflow: homeowner intake, bill review, transparent qualification, sales quote, quote PDF, and project status. The client opportunity figures are brief-supplied assumptions, not measured product results.
+PostgreSQL persists Argon2-hashed users, database-backed sessions, customer-owned leads, sales-creation provenance, private bill metadata, original extraction JSON, confirmed bill JSON, qualification assessments, rule sets, surveys, immutable quote versions, projects, stage events, mock notification events, audit events, and hashes of customer status tokens.
 
-## Architecture and flows
+New intake requires a six-digit pincode, owner/tenant relationship, roof type, roof area, monthly bill, and a bill image. Pincode remains nullable for legacy records; the migration does not invent historic values. A sales-created lead is owned by an existing or provisioned homeowner, while `createdBy` records the sales user separately.
 
-React/Vite presents role-focused screens and uses TanStack Query. An Express/TypeScript API validates requests with Zod and owns deterministic calculations. Prisma/PostgreSQL persists users, customer-owned leads, sales-creation provenance, private documents, rules, quotes, projects, stage events and hashed status tokens.
+## Authentication, authorisation and privacy
 
-The flow is intake → private bill upload/extraction → human confirmation → baseline qualification/sizing → survey → immutable quote snapshot/PDF → ordered project stages → customer-safe status view.
+Passwords use Argon2. Sessions are server-managed, expire/revoke in PostgreSQL, and use HttpOnly cookies. Cookie-authenticated mutations require CSRF validation. Leads, bills, quotes and PDFs use database relationship checks: homeowners see only their own records; quote issue, survey, stage change and customer-link administration are sales actions. Unauthorised API access receives an error rather than application data.
 
-## AI and uncertainty
+Bill files are memory-buffer validated by MIME, size and signature before authenticated Cloudinary upload. Metadata records Cloudinary’s returned public ID, resource/delivery type, format, size and lead ownership. Preview/download is authorised server-side and returned as an explicitly expiring private link. A metadata write failure triggers asset cleanup. Customer status tokens are cryptographically random, stored only as hashes, scoped to a project, expiring and revocable; their public response excludes bills, consumer numbers, private URLs and staff notes.
 
-The production adapter should send images only to a configured multimodal provider and demand structured JSON validated by Zod. Original output, model metadata, field flags and corrections are stored. Missing, malformed, blurry, timeout, or rate-limited extraction never invents data: it requests re-upload or manual entry. Confidence flags mean “review indicator,” not a calibrated probability. Baseline rules keep work moving when AI is unavailable; AI cannot finalise pricing or override rules.
+## AI, manual fallback and assessment provenance
 
-## Calculation example
+The Groq bill adapter retrieves the protected image server-side; the browser never receives provider credentials or a public bill URL. It requests a typed structured response, validates it with Zod, preserves consumer-number strings (including leading zeros), and stores original extraction separately from reviewed fields. A timeout, malformed response, unavailable model, provider error, or `unreadable` result records a manual-required state, retains the uploaded bill, and provides retry, re-upload or manual entry. It never fabricates values or marks upload success as extraction success. PDF bill extraction is deliberately unsupported: users are asked for JPEG/PNG or manual entry.
 
-For 3 kW: gross cost is 3 × ₹65,000 = ₹195,000. Demo subsidy is ₹78,000, net ₹117,000. Annual generation is 3 × 1,400 = 4,200 units. Savings use 80% self-consumption × ₹8 = ₹26,880/year; simple payback is 4.4 years. Values are estimates. Rules are date-effective; start is inclusive and end exclusive; overlaps are rejected. Issued snapshots retain inputs and rule version.
+After human confirmation, Groq qualification receives only ownership, roof data, tariff, monthly units and bill amount—not the name, contact details, pincode or consumer number. The saved assessment includes source, model and time. Provider failure saves a labelled baseline fallback. Deterministic guardrails mean tenants and low-readiness leads still get the actionable next step **Short sales call**, even if an AI-assisted band is high. AI never determines price, subsidy, sizing, generation, savings or payback.
 
-## Security and limits
+## Dated calculations and quotes
 
-Production controls include bcrypt/Argon password hashing, HttpOnly secure sessions, CSRF token checks, exact CORS, role/ownership enforcement, rate limits, file magic-byte validation, private object storage, and safe logging. Status links use random secrets stored as hashes with expiry/revocation and omit bills, consumer number and staff notes. The compact demo demonstrates validation and rate limiting but requires persistence/auth middleware completion before production. This is not a claim of legal compliance.
+At issue time, the API selects one effective PRICE, GENERATION and SUBSIDY rule from PostgreSQL. Effective starts are inclusive and ends exclusive; gaps or overlaps reject issuance. Quote issue is transactional and creates a new immutable version; it never changes a previous snapshot. The snapshot drives the PDF, including capacity, annual generation, issue time, rule effective date, assumptions, and estimate disclaimers.
 
-## Assumption register / cuts
+Current synthetic assumptions are INR 65,000/kW, 1,400 units/kW/year, 80% self-consumption, and INR 8/unit. Residential subsidy is estimated as INR 30,000/kW for the first two whole kW plus INR 18,000 for the third, capped at INR 78,000; commercial eligibility is review-required. These are seeded demo rules, not current policy commitments. Consumption-based capacity and roof-limited capacity are shown separately; a saved sales survey supplies usable roof area for the post-survey recommendation.
 
-The generation, roof, price, self-consumption, rate, and fractional subsidy policies are explicit demo assumptions. Quote rules require policy verification. Roof-type choices are intake assumptions, not engineering certification. Browser automation and a public deployment remain outstanding; live Groq success remains unverified because the bounded provider request timed out during the recorded check.
+## UI decisions
+
+Homeowners and sales users share one role-aware interface with English, Hindi and Marathi selection. Numeric values, identifiers and units are preserved across language selection. Homeowners create and review their own leads; sales can search by customer/lead ID, readiness and stage, record survey findings, issue/revise quotes, advance valid stages, and create/revoke customer links. Direct `/leads/:id/{bill|quote|project}` navigation restores after refresh. The customer status link is a restricted public view, separate from homeowner authentication.
+
+Survey saving is dirty-state aware: the action is disabled until input changes, success is announced only after a persisted response and shows the saved time, and failures retain values with an inline retry. Quote issue similarly waits for a persisted response, announces ID/capacity/issue time, offers PDF download, and changes the primary action to an explicit **Create revised quote** action that preserves prior snapshots.
 
 ## Verification record
 
-Tests cover subsidy cap, fractional policy, commercial ineligibility, generation/payback, roof constraint, short-call guardrails, bill contracts, Groq contracts, status links, saved-quote mapping and route parsing. The final recorded commands are `npm run typecheck`, `npm run test` (33 tests), and `npm run build:production`.
+Actual local checks on 09 Nov 2026 at the deployed release reference:
+
+- `npm run typecheck` — passed.
+- `npm test` — passed: 13 test files, 41 tests.
+- `npm run build:production` — passed: Prisma Client generation, Vite production build and API TypeScript build.
+
+Tests cover deterministic calculation boundaries, missing/overlapping dated rules, quote snapshot mapping, assessment guardrails/provenance, bill and Groq response contracts, secure customer-token expiry/revocation, project transition decisions, database-error behaviour, and route parsing. Provider test suites use mocks. Earlier recorded live work exercised private Cloudinary upload/download and manual fallback after a bounded Groq timeout; it did **not** verify a successful live Groq extraction or qualification. The live public origin is listed above; this document makes no claim that the documentation update itself re-ran external-provider checks.
+
+## Assumptions, cuts and next steps
+
+- Roof type choices (RCC concrete, metal sheet, tile roof, other/needs survey) are intake assumptions, not structural certification.
+- Price, generation, self-use, tariff and subsidy figures are seeded demo assumptions and require current policy/site review.
+- Mock notification records are persisted; no SMS, WhatsApp or email is sent.
+- Browser E2E/Playwright coverage and a repeat live Groq success test remain future work.
+- Add operational monitoring, backup/retention policy, provider cost controls, accessibility audits and formal security review before a production commercial rollout.
+
+## Setup summary
+
+Use the exact instructions in [deployment.md](../deployment.md). Required variable names are `DATABASE_URL`, `SESSION_SECRET`, `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`, `GROQ_API_KEY`, `GROQ_VISION_MODEL`, `NODE_ENV`, and `PUBLIC_ORIGIN`; no values are stored in this document. The idempotent synthetic seed provides `sales@surya.demo` and `prashant@surya.demo`, both with the development-only password `DemoPass!2026`.
