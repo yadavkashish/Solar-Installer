@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   billConfirmationSchema,
+  billExtractionSchema,
+  extractionStatus,
   normaliseBillExtraction,
 } from "./bill-schema.js";
 
@@ -39,5 +41,20 @@ describe("bill confirmation validation", () => {
         notes: [],
       }),
     ).toMatchObject({ monthlyBill: 3200 });
+  });
+
+  it("requires manual review when a provider marks a bill unreadable", () => {
+    const extraction = billExtractionSchema.parse({
+      consumerNumber: null,
+      tariff: null,
+      sanctionedLoad: null,
+      sanctionedLoadUnit: null,
+      monthlyUnits: null,
+      monthlyBill: null,
+      billingPeriod: null,
+      unreadable: true,
+      notes: ["Image is blurry"],
+    });
+    expect(extractionStatus(extraction)).toBe("MANUAL_REQUIRED");
   });
 });

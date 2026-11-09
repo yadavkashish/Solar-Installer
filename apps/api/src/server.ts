@@ -38,10 +38,12 @@ import {
 import { extractBill } from "./groq.js";
 import {
   billConfirmationSchema,
+  extractionStatus,
   normaliseBillConfirmation,
   normaliseBillExtraction,
 } from "./bill-schema.js";
 import { recommend, score } from "./engine.js";
+import { assessQualification } from "./qualification.js";
 import {
   createStatusToken,
   customerStatus,
@@ -77,6 +79,7 @@ const leadInput = z.object({
   name: z.string().min(2),
   email: z.string().email(),
   phone: z.string().min(8),
+  pincode: z.string().regex(/^\d{6}$/, "Pincode must contain six digits."),
   ownerType: z.enum(["OWNER", "TENANT"]),
   roofType: z.string(),
   roofArea: z.coerce.number().nonnegative().nullable(),
@@ -91,6 +94,36 @@ const billDocumentResponse = (doc: any) => ({
   extraction: normaliseBillExtraction(doc.extraction),
   confirmed: normaliseBillConfirmation(doc.confirmed),
 });
+async function enrichQualification(
+  leadId: string,
+  qualification: Parameters<typeof assessQualification>[0],
+  baseline: ReturnType<typeof score>,
+) {
+  try {
+    const assisted = await assessQualification(qualification, baseline);
+    await db.qualificationAssessment.update({
+      where: { leadId },
+      data: assisted,
+    });
+  } catch (error: any) {
+    console.warn("qualification.assessment.fallback", {
+      leadId,
+      message: error?.message,
+    });
+    await db.qualificationAssessment.update({
+      where: { leadId },
+      data: {
+        source: "baseline fallback; Groq qualification unavailable",
+        score: baseline.points,
+        band: baseline.band,
+        reasons: baseline.reasons,
+        nextAction: baseline.nextAction,
+        model: null,
+        assessedAt: new Date(),
+      },
+    });
+  }
+}
 app.get("/healthz", (_req, res) => res.json({ ok: true }));
 app.get("/api/healthz", async (_req, res) => {
   try {
@@ -374,10 +407,16 @@ app.post(
         where: { id: doc.id },
         data: {
           extraction,
-          status: "EXTRACTED",
+          status: extractionStatus(extraction),
           model: process.env.GROQ_VISION_MODEL,
         },
       });
+      if (extraction.unreadable)
+        return res.status(422).json({
+          documentId: saved.id,
+          error:
+            "The bill image could not be read. Upload a clearer replacement or enter the details manually.",
+        });
       console.info("bill.extract.success", {
         leadId: id,
         documentId: doc.id,
@@ -483,6 +522,25 @@ app.put(
       return { doc, lead };
     });
     if (!result) return res.sendStatus(404);
+    await enrichQualification(
+      id,
+      {
+        ownerType: result.lead.ownerType,
+        roofType: result.lead.roofType,
+        roofArea:
+          result.lead.roofArea == null ? null : Number(result.lead.roofArea),
+        tariff: input.data.tariff,
+        monthlyUnits: input.data.monthlyUnits,
+        monthlyBill: input.data.monthlyBill,
+      },
+      score({
+        ownerType: result.lead.ownerType,
+        monthlyUnits: input.data.monthlyUnits,
+        roofArea:
+          result.lead.roofArea == null ? null : Number(result.lead.roofArea),
+        tariff: input.data.tariff,
+      }),
+    );
     res.json({
       document: billDocumentResponse(result.doc),
       lead: await findLead(result.lead.id),

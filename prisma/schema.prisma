@@ -39,6 +39,7 @@ model Lead {
  name String
  email String
  phone String
+ pincode String?
  ownerType String
  roofType String
  roofArea Decimal?
@@ -86,6 +87,8 @@ model QualificationAssessment {
  reasons Json
  nextAction String
  recommendation Json
+ model String?
+ assessedAt DateTime?
  createdAt DateTime @default(now())
  updatedAt DateTime @updatedAt
 }

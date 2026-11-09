@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { api, upload, ApiError, SessionExpired } from "./auth-client";
+import type { Translation } from "./i18n";
 import "./bill-review.css";
 type BillForm = {
   consumerNumber: string;
@@ -66,10 +67,12 @@ export function BillReview({
   lead,
   onConfirmed,
   canReopen = false,
+  t,
 }: {
   lead: any;
   onConfirmed?: (lead: any) => void;
   canReopen?: boolean;
+  t: Translation;
 }) {
   const [doc, setDoc] = useState<any>(),
     [form, setForm] = useState<BillForm>(emptyForm),
@@ -202,7 +205,7 @@ export function BillReview({
   return (
     <section className="grid bill-review">
       <article className="card bill">
-        <h2>Electricity bill</h2>
+        <h2>{t.bill}</h2>
         {preview ? (
           <img
             src={preview}
@@ -213,7 +216,7 @@ export function BillReview({
           <p>{doc ? "Loading protected preview…" : "No bill yet."}</p>
         )}
         <label>
-          Upload JPEG or PNG
+          {doc ? t.replaceBill : t.selectBill}
           <input
             disabled={busy}
             type="file"
@@ -223,9 +226,9 @@ export function BillReview({
         </label>
       </article>
       <article className="card form compact-form">
-        <h2>Review bill details</h2>
+        <h2>{t.reviewBill}</h2>
         <p>
-          Status: <b>{doc?.status || "NO_BILL"}</b>
+          {t.billStatus}: <b>{doc?.status || "NO_BILL"}</b>
         </p>
         <p>
           {doc?.status === "PENDING_EXTRACTION"
@@ -235,7 +238,7 @@ export function BillReview({
               : doc?.status === "EXTRACTED"
                 ? "AI suggestions are ready. Check every value before confirming."
                 : doc?.status === "MANUAL_REQUIRED"
-                  ? "Extraction was unavailable. Enter the bill values manually or retry."
+                  ? t.manualBill
                   : doc?.status === "CONFIRMED"
                     ? "Reviewed values are saved."
                     : "Upload a JPEG or PNG bill to begin review."}
@@ -259,32 +262,31 @@ export function BillReview({
             {busy
               ? "Extracting…"
               : doc.status === "MANUAL_REQUIRED"
-                ? "Retry extraction"
-                : "Extract bill details"}
+                ? t.retryExtraction
+                : t.extract}
           </button>
         )}
         <p>
-          AI suggestions require your confirmation. Blank fields mean no value
-          was extracted.
+          {t.aiReview}
         </p>
         {error && <p className="error">{error}</p>}
         {success && <p>{success}</p>}
         <label>
-          Consumer number
+          {t.consumerNumber}
           <input
             value={form.consumerNumber}
             onChange={(e) => edit("consumerNumber", e.target.value)}
           />
         </label>
         <label>
-          Tariff
+          {t.tariff}
           <input
             value={form.tariff}
             onChange={(e) => edit("tariff", e.target.value)}
           />
         </label>
         <label>
-          Sanctioned load
+          {t.sanctionedLoad}
           <input
             inputMode="decimal"
             value={form.sanctionedLoad}
@@ -292,32 +294,32 @@ export function BillReview({
           />
         </label>
         <label>
-          Sanctioned-load unit
+          {t.loadUnit}
           <select
             value={form.sanctionedLoadUnit}
             onChange={(e) => edit("sanctionedLoadUnit", e.target.value)}
           >
-            <option value="">Select unit</option>
+            <option value="">{t.selectUnit}</option>
             <option value="kW">kW</option>
             <option value="kVA">kVA</option>
           </select>
         </label>
         <label>
-          Monthly units
+          {t.monthlyUnits}
           <input
             value={form.monthlyUnits}
             onChange={(e) => edit("monthlyUnits", e.target.value)}
           />
         </label>
         <label>
-          Monthly bill
+          {t.monthlyBill}
           <input
             value={form.monthlyBill}
             onChange={(e) => edit("monthlyBill", e.target.value)}
           />
         </label>
         <button disabled={busy || !doc} className="primary" onClick={confirm}>
-          {busy ? "Saving…" : "Confirm reviewed values"}
+          {busy ? t.saving : t.confirm}
         </button>
       </article>
     </section>

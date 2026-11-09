@@ -30,6 +30,9 @@ export const billExtractionSchema = z.object({
 
 export type BillExtraction = z.infer<typeof billExtractionSchema>;
 
+export const extractionStatus = (extraction: BillExtraction) =>
+  extraction.unreadable ? "MANUAL_REQUIRED" : "EXTRACTED";
+
 /** Qualification and quoting may only use a complete, human-reviewed bill. */
 export const billConfirmationSchema = z.object({
   consumerNumber: z.string().trim().min(1, "Consumer number is required."),

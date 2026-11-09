@@ -3,6 +3,18 @@
 **Repository URL: https://github.com/yadavkashish/Solar-Installer**
 **Live URL: Not deployed.**
 
+## Current implementation and verification (09 Nov 2026)
+
+This section supersedes historical planning notes below. Prisma/PostgreSQL persists leads, sessions, private bill metadata, assessments, dated rules, immutable quotes, projects, notifications, audits and hashed status tokens. The lead schema now stores nullable pincode for legacy records; new intake requires a six-digit pincode, owner/tenant selection, a selectable roof type, roof area, monthly bill and a JPEG/PNG bill. Roof-type options (RCC concrete, metal sheet, tile roof, other/needs survey) are assumptions, not engineering certification.
+
+The intake creates a lead once, then uploads the bill privately; upload failure can be retried without creating a duplicate lead. Groq bill extraction is Zod-validated. A provider `unreadable` result, invalid response, timeout or failure stores `MANUAL_REQUIRED`, preserves the private bill and presents replacement/manual-review paths. Human-confirmed bill values remain distinct from original extraction.
+
+After bill confirmation, Groq qualification receives only ownership, roof type/area, tariff, monthly units and bill amount. It does not receive customer name, contact details, consumer number or pincode. Provider output is validated and persisted with source, model and assessment time. Provider failures persist a labelled baseline fallback. Deterministic guardrails retain short sales calls for tenants and low-readiness leads; pricing, subsidy, generation and payback remain deterministic.
+
+English, Hindi and Marathi selection is available before sign-in, in authenticated navigation, intake, bill review, quote/project headings and customer-status views. Numeric values, identifiers and units remain unchanged.
+
+Actual checks: `npx prisma validate`, `npm run typecheck`, `npm run test` (10 files, 31 tests) and `npm run build` passed. The forward migration adding nullable lead pincode and assessment provenance applied successfully to Neon; the seed ran twice successfully. A later read-only `prisma migrate status` retry hit intermittent Neon `P1001`; no reset or schema change followed. A live synthetic lead was created, a private PNG was uploaded to Cloudinary and downloaded server-side. Groq extraction timed out at its bounded limit and correctly entered manual review. Successful live extraction/qualification, full browser language coverage, Playwright and public deployment remain unverified.
+
 ## Problem and core scope
 
 Surya Path replaces fragmented WhatsApp/Excel lead capture with a focused workflow: homeowner intake, bill review, transparent qualification, sales quote, quote PDF, and project status. The client opportunity figures are brief-supplied assumptions, not measured product results.

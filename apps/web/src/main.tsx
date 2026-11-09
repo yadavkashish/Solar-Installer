@@ -12,12 +12,19 @@ import {
   login,
   logout,
   restore,
+  upload,
   ApiError,
   SessionExpired,
 } from "./auth-client";
 import type { CurrentUser } from "./auth-client";
 import { BillReview } from "./bill-review";
 import { leadPath, parseRoute, type LeadTab, type Route } from "./routes";
+import {
+  languageName,
+  translate,
+  type Language,
+  type Translation,
+} from "./i18n";
 import "./style.css";
 const leadTabs: { id: LeadTab; label: string }[] = [
   { id: "overview", label: "overview" },
@@ -26,17 +33,50 @@ const leadTabs: { id: LeadTab; label: string }[] = [
   { id: "project", label: "project" },
 ];
 const rupee = (n: number) => "₹" + n.toLocaleString("en-IN");
-function Login({ go }: { go: (u: CurrentUser) => void }) {
+function LanguagePicker({
+  language,
+  setLanguage,
+}: {
+  language: Language;
+  setLanguage: (language: Language) => void;
+}) {
+  return (
+    <label className="language-picker">
+      <span>Language / भाषा</span>
+      <select
+        value={language}
+        onChange={(event) => setLanguage(event.target.value as Language)}
+      >
+        {(Object.keys(languageName) as Language[]).map((key) => (
+          <option key={key} value={key}>
+            {languageName[key]}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+function Login({
+  go,
+  language,
+  setLanguage,
+}: {
+  go: (u: CurrentUser) => void;
+  language: Language;
+  setLanguage: (language: Language) => void;
+}) {
+  const t = translate(language);
   const [email, setEmail] = useState("sales@surya.demo"),
     [password, setPassword] = useState("DemoPass!2026"),
     [error, setError] = useState("");
   return (
     <main className="login">
       <div className="sun">☀</div>
+      <LanguagePicker language={language} setLanguage={setLanguage} />
       <p className="eyebrow">VIDARBHA SOLAR WORKSPACE</p>
       <h1>Clarity for every rooftop.</h1>
       <section className="card">
-        <h2>Sign in</h2>
+        <h2>{t.signIn}</h2>
         <form
           onSubmit={async (e) => {
             e.preventDefault();
@@ -48,11 +88,11 @@ function Login({ go }: { go: (u: CurrentUser) => void }) {
           }}
         >
           <label>
-            Email
+            {t.email}
             <input value={email} onChange={(e) => setEmail(e.target.value)} />
           </label>
           <label>
-            Password
+            {t.password}
             <input
               type="password"
               value={password}
@@ -60,7 +100,7 @@ function Login({ go }: { go: (u: CurrentUser) => void }) {
             />
           </label>
           {error && <p className="error">{error}</p>}
-          <button className="primary">Sign in</button>
+          <button className="primary">{t.signIn}</button>
         </form>
         <small>
           Demo: sales@surya.demo or prashant@surya.demo; password DemoPass!2026.
@@ -143,11 +183,12 @@ function List({
     </main>
   );
 }
-function New({ done }: { done: (x: any) => void }) {
+function New({ done, t }: { done: (x: any) => void; t: Translation }) {
   const [f, setF] = useState<any>({
       name: "",
       email: "",
       phone: "",
+      pincode: "",
       ownerType: "OWNER",
       roofType: "RCC",
       roofArea: "",
@@ -155,62 +196,100 @@ function New({ done }: { done: (x: any) => void }) {
       monthlyUnits: "",
       tariff: "Residential",
     }),
-    [err, setErr] = useState("");
+    [err, setErr] = useState(""),
+    [bill, setBill] = useState<File | null>(null),
+    [createdLead, setCreatedLead] = useState<any>(null),
+    [busy, setBusy] = useState(false);
   const change = (k: string, v: string) => setF({ ...f, [k]: v });
+  const saveAndUpload = async () => {
+    if (!bill) {
+      setErr(t.selectBill);
+      return;
+    }
+    setBusy(true);
+    setErr("");
+    let lead = createdLead;
+    try {
+      if (!lead) {
+        lead = await api("/leads", {
+          method: "POST",
+          body: JSON.stringify({
+            ...f,
+            roofArea: +f.roofArea,
+            monthlyBill: +f.monthlyBill,
+            monthlyUnits: f.monthlyUnits ? +f.monthlyUnits : null,
+          }),
+        });
+        setCreatedLead(lead);
+      }
+      await upload("/leads/" + lead.id + "/bill/upload", bill);
+      done(lead);
+    } catch (x: any) {
+      setErr(
+        lead
+          ? `Lead saved, but bill upload failed: ${x.message}. Choose a replacement and retry; a new lead will not be created.`
+          : x.message,
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <main className="narrow">
-      <p className="eyebrow">HOMEOWNER INTAKE</p>
-      <h1>Tell us about your rooftop</h1>
+      <p className="eyebrow">{t.intake}</p>
+      <h1>{t.rooftop}</h1>
       <form
         className="card form"
         onSubmit={async (e) => {
           e.preventDefault();
-          try {
-            done(
-              await api("/leads", {
-                method: "POST",
-                body: JSON.stringify({
-                  ...f,
-                  roofArea: +f.roofArea,
-                  monthlyBill: +f.monthlyBill,
-                  monthlyUnits: f.monthlyUnits ? +f.monthlyUnits : null,
-                }),
-              }),
-            );
-          } catch (x: any) {
-            setErr(x.message);
-          }
+          await saveAndUpload();
         }}
       >
         {[
-          ["name", "Full name"],
-          ["email", "Email address"],
-          ["phone", "Mobile number"],
-          ["roofArea", "Available roof area (m²)"],
-          ["monthlyBill", "Monthly electricity bill (₹)"],
-          ["monthlyUnits", "Average monthly units (optional)"],
+          ["name", t.fullName],
+          ["email", t.email],
+          ["phone", t.phone],
+          ["pincode", t.pincode],
+          ["roofArea", t.roofArea],
+          ["monthlyBill", t.monthlyBill],
+          ["monthlyUnits", t.monthlyUnits],
         ].map(([k, l]) => (
           <label key={k}>
             {l}
             <input
               required={k !== "monthlyUnits"}
+              inputMode={k === "pincode" ? "numeric" : undefined}
+              pattern={k === "pincode" ? "[0-9]{6}" : undefined}
+              maxLength={k === "pincode" ? 6 : undefined}
               value={f[k]}
               onChange={(e) => change(k, e.target.value)}
             />
           </label>
         ))}
         <label>
-          Property relationship
+          {t.relationship}
           <select
             value={f.ownerType}
             onChange={(e) => change("ownerType", e.target.value)}
           >
-            <option value="OWNER">I own the property</option>
-            <option value="TENANT">I rent the property</option>
+            <option value="OWNER">{t.owner}</option>
+            <option value="TENANT">{t.tenant}</option>
           </select>
         </label>
         <label>
-          Tariff
+          {t.roofType}
+          <select
+            value={f.roofType}
+            onChange={(e) => change("roofType", e.target.value)}
+          >
+            <option value="RCC">RCC concrete</option>
+            <option value="METAL">Metal sheet</option>
+            <option value="TILE">Tile roof</option>
+            <option value="OTHER">Other / needs survey</option>
+          </select>
+        </label>
+        <label>
+          {t.tariff}
           <select
             value={f.tariff}
             onChange={(e) => change("tariff", e.target.value)}
@@ -221,16 +300,26 @@ function New({ done }: { done: (x: any) => void }) {
           </select>
         </label>
         <div className="upload">
-          <b>Electricity bill upload</b>
+          <b>{t.billUpload}</b>
           <span>
-            Images/PDF only. The production API validates type, size and
-            authorisation. This UI demo exposes manual review if AI is
-            unavailable.
+            JPEG or PNG only. It is uploaded privately after the lead is saved;
+            if upload fails, retry without creating another lead.
           </span>
-          <input type="file" accept="image/png,image/jpeg,application/pdf" />
+          <input
+            required={!createdLead}
+            type="file"
+            accept="image/png,image/jpeg"
+            onChange={(event) => setBill(event.target.files?.[0] ?? null)}
+          />
         </div>
         {err && <p className="error">{err}</p>}
-        <button className="primary">Save and review bill</button>
+        <button className="primary" disabled={busy}>
+          {busy
+            ? "Saving…"
+            : createdLead
+              ? "Retry bill upload"
+              : "Save and review bill"}
+        </button>
       </form>
     </main>
   );
@@ -446,7 +535,7 @@ function StatusLinkManager({
     </article>
   );
 }
-function CustomerStatus({ token }: { token: string }) {
+function CustomerStatus({ token, t }: { token: string; t: Translation }) {
   const [state, setState] = useState<{
     loading: boolean;
     data?: any;
@@ -474,20 +563,20 @@ function CustomerStatus({ token }: { token: string }) {
       live = false;
     };
   }, [token]);
-  if (state.loading) return <main>Loading project status…</main>;
+  if (state.loading) return <main>{t.loading}</main>;
   if (state.error)
     return (
       <main>
-        <h1>Status link unavailable</h1>
+        <h1>{t.status}</h1>
         <p className="error">{state.error}</p>
       </main>
     );
   return (
     <main className="narrow">
-      <p className="eyebrow">SURYA PATH PROJECT STATUS</p>
+      <p className="eyebrow">{t.status}</p>
       <h1>{state.data.stage}</h1>
       <section className="card">
-        <h2>Timeline</h2>
+        <h2>{t.project}</h2>
         {state.data.timeline.length ? (
           state.data.timeline.map((event: any) => (
             <p key={`${event.stage}-${event.createdAt}`}>
@@ -495,7 +584,7 @@ function CustomerStatus({ token }: { token: string }) {
             </p>
           ))
         ) : (
-          <p>Your project has not started yet.</p>
+          <p>{t.notStarted}</p>
         )}
       </section>
     </main>
@@ -508,6 +597,7 @@ function Detail({
   onSessionExpired,
   tab,
   navigate,
+  t,
 }: {
   x: any;
   back: () => void;
@@ -515,6 +605,7 @@ function Detail({
   onSessionExpired: () => void;
   tab: LeadTab;
   navigate: (path: string) => void;
+  t: Translation;
 }) {
   const [l, setL] = useState(x),
     [kw, setKw] = useState(x.recommendation.kw || 3),
@@ -622,6 +713,7 @@ function Detail({
         <BillReview
           lead={l}
           canReopen={role === "SALES"}
+          t={t}
           onConfirmed={(updated) => {
             setL(updated);
             qc.invalidateQueries({ queryKey: ["leads"] });
@@ -655,9 +747,9 @@ function Detail({
       {tab === "quote" && (
         <section className="grid">
           <article className="card">
-            <h2>Quote builder</h2>
+            <h2>{t.quote}</h2>
             <label>
-              Capacity (kW)
+              {t.capacity}
               <input
                 type="number"
                 step="0.5"
@@ -670,7 +762,7 @@ function Detail({
               immutable snapshot.
             </p>
             <button className="primary" disabled={quoteBusy} onClick={issue}>
-              {quoteBusy ? "Issuing quote…" : "Issue quote"}
+              {quoteBusy ? t.saving : t.issueQuote}
             </button>
             {quoteError && <p className="error">{quoteError}</p>}
           </article>
@@ -690,15 +782,15 @@ function Detail({
       {tab === "project" && (
         <section className="grid">
           <article className="card">
-            <h2>Project timeline</h2>
+            <h2>{t.project}</h2>
             <p>
-              <b>{l.project?.stage || "Not started"}</b>
+              <b>{l.project?.stage || t.notStarted}</b>
             </p>
             {(l.project?.events || []).map((e: any) => (
               <p key={e.id ?? `${e.stage}-${e.createdAt}`}>✓ {e.stage}</p>
             ))}
             <button className="primary" onClick={advance}>
-              Advance to next stage
+              {t.advanceStage}
             </button>
             <small>
               Advance recorded is a mock payment event. Every successful stage
@@ -729,11 +821,13 @@ function LeadRoute({
   role,
   navigate,
   onSessionExpired,
+  t,
 }: {
   route: Extract<Route, { kind: "lead" }>;
   role: CurrentUser["role"];
   navigate: (path: string) => void;
   onSessionExpired: () => void;
+  t: Translation;
 }) {
   const { data, error, isLoading } = useQuery({
     queryKey: ["lead", route.id],
@@ -742,7 +836,7 @@ function LeadRoute({
   useEffect(() => {
     if (error instanceof SessionExpired) onSessionExpired();
   }, [error, onSessionExpired]);
-  if (isLoading) return <main>Loading lead…</main>;
+  if (isLoading) return <main>{t.loading}</main>;
   if (error instanceof SessionExpired)
     return <main>Returning to sign in…</main>;
   if (error instanceof ApiError && error.status === 403)
@@ -774,6 +868,7 @@ function LeadRoute({
       tab={route.tab}
       navigate={navigate}
       onSessionExpired={onSessionExpired}
+      t={t}
     />
   );
 }
@@ -781,7 +876,12 @@ function App() {
   const [user, setUser] = useState<CurrentUser | null>(null),
     [ready, setReady] = useState(false),
     [path, setPath] = useState(window.location.pathname),
-    [notice, setNotice] = useState("");
+    [notice, setNotice] = useState(""),
+    [language, setLanguage] = useState<Language>(() => {
+      const saved = window.localStorage.getItem("surya-language");
+      return saved === "hi" || saved === "mr" ? saved : "en";
+    });
+  const t = translate(language);
   const navigate = (next: string, replace = false) => {
     if (replace) window.history.replaceState(null, "", next);
     else window.history.pushState(null, "", next);
@@ -792,6 +892,9 @@ function App() {
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
+  useEffect(() => {
+    window.localStorage.setItem("surya-language", language);
+  }, [language]);
   useEffect(() => {
     restore()
       .then(setUser)
@@ -805,8 +908,13 @@ function App() {
     if (window.location.pathname !== canonical) navigate(canonical, true);
   }, [path]);
   if (route.kind === "customerStatus")
-    return <CustomerStatus token={route.token} />;
-  if (!ready) return <main>Restoring your session…</main>;
+    return (
+      <>
+        <LanguagePicker language={language} setLanguage={setLanguage} />
+        <CustomerStatus token={route.token} t={t} />
+      </>
+    );
+  if (!ready) return <main>{t.loading}</main>;
   if (!user)
     return (
       <>
@@ -815,6 +923,8 @@ function App() {
             setUser(nextUser);
             if (route.kind === "notFound") navigate("/leads", true);
           }}
+          language={language}
+          setLanguage={setLanguage}
         />
         {notice && <p className="error">{notice}</p>}
       </>
@@ -839,12 +949,13 @@ function App() {
           surya<span>path</span>
         </button>
         <nav>
-          <button onClick={() => navigate("/leads")}>Leads</button>
+          <button onClick={() => navigate("/leads")}>{t.leads}</button>
           {user.role === "HOMEOWNER" && (
-            <button onClick={() => navigate("/leads/new")}>New lead</button>
+            <button onClick={() => navigate("/leads/new")}>{t.newLead}</button>
           )}
-          <button onClick={signOut}>Log out</button>
+          <button onClick={signOut}>{t.logout}</button>
         </nav>
+        <LanguagePicker language={language} setLanguage={setLanguage} />
         <i>{user.role === "SALES" ? "SS" : "HW"}</i>
       </header>
       {route.kind === "new" && user.role === "HOMEOWNER" ? (
@@ -852,6 +963,7 @@ function App() {
           done={(x) => {
             navigate(leadPath(x.id, "bill"));
           }}
+          t={t}
         />
       ) : route.kind === "lead" ? (
         <LeadRoute
@@ -859,6 +971,7 @@ function App() {
           role={user.role}
           navigate={navigate}
           onSessionExpired={sessionExpired}
+          t={t}
         />
       ) : route.kind === "leads" ? (
         <List

@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-Node 20+ and npm 10+. Copy `.env.example` to root `.env`; never commit it. Neon PostgreSQL is the recommended database; Docker PostgreSQL is optional for local-only development. The API uses database-backed Argon2 users/sessions, role and ownership checks, private Cloudinary bill storage, and optional Groq image extraction.
+Node 20+ and npm 10+. Copy `.env.example` to root `.env`; never commit it. Neon PostgreSQL is the recommended database; Docker PostgreSQL is optional for local-only development. The API uses database-backed Argon2 users/sessions, role and ownership checks, private Cloudinary bill storage, Groq bill extraction and Groq-assisted qualification with deterministic guardrails.
 
 ## Local development
 
@@ -41,7 +41,7 @@ npm run db:seed
 
 ## Checks
 
-Latest local result (09 Nov 2026): `npm run typecheck` passed; `npm run test` passed (9 files, 28 tests); `npm run build` passed; and `npx prisma migrate status` reported three migrations with an up-to-date schema. `npm run db:seed` was attempted twice but both attempts failed with `PrismaClientInitializationError` because the configured Neon pooled host could not be reached. No reset, deletion or migration was performed.
+Latest local result (09 Nov 2026): `npx prisma validate`, `npm run typecheck`, `npm run test` (10 files, 31 tests), and `npm run build` passed. The pincode/assessment-provenance forward migration was applied successfully and `npm run db:seed` ran twice successfully without resetting data. A later read-only `prisma migrate status` retry hit intermittent Neon `P1001`; no reset or schema change followed. A real synthetic PNG reached Cloudinary and was downloaded privately; Groq extraction timed out and correctly produced the manual-review path.
 
 ## Environment
 
@@ -53,4 +53,4 @@ Use a Render **Web Service**, connect the GitHub repository, choose branch `mast
 
 ## Remaining setup blockers
 
-Real provider verification requires `GROQ_API_KEY` and the three Cloudinary variables. Automated provider tests use mocks. Full Playwright browser regression coverage and public deployment remain outstanding. The fresh-seed/runtime check is currently blocked by intermittent reachability of the configured Neon pooled host; do not reset the application database to work around it.
+Successful live Groq extraction/qualification remains unverified: the configured extraction request timed out, although the authenticated Cloudinary upload/private-download/manual-review path was exercised. Automated provider tests use mocks. Full Playwright browser regression coverage and public deployment remain outstanding.

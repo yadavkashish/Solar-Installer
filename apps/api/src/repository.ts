@@ -150,6 +150,8 @@ const asLead = (l: any) => ({
         reasons: l.assessment.reasons,
         nextAction: l.assessment.nextAction,
         source: l.assessment.source,
+        model: l.assessment.model,
+        assessedAt: l.assessment.assessedAt,
       }
     : undefined,
   recommendation: l.assessment?.recommendation,
@@ -184,6 +186,7 @@ export async function createLead(data: any, ownerId: string) {
           reasons: baseline.reasons,
           nextAction: baseline.nextAction,
           recommendation,
+          assessedAt: new Date(),
         },
       },
     },

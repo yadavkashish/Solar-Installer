@@ -53,10 +53,10 @@ async function main() {
         version: rule.version,
       },
     });
-  for (const [id, name, bill, units, ownerType] of [
-    ["LD-30881", "Demo Owner One", 3200, 340, "OWNER"],
-    ["LD-30902", "Demo Tenant One", 1900, 210, "TENANT"],
-    ["LD-30915", "Demo Owner Two", 650, 85, "OWNER"],
+  for (const [id, name, bill, units, ownerType, pincode] of [
+    ["LD-30881", "Demo Owner One", 3200, 340, "OWNER", "440001"],
+    ["LD-30902", "Demo Tenant One", 1900, 210, "TENANT", "440010"],
+    ["LD-30915", "Demo Owner Two", 650, 85, "OWNER", "440022"],
   ] as const) {
     const baseline = score({
       ownerType,
@@ -72,6 +72,7 @@ async function main() {
         monthlyBill: bill,
         monthlyUnits: units,
         ownerType,
+        pincode,
         assessment: {
           update: {
             source: baseline.source,
@@ -89,6 +90,7 @@ async function main() {
         email: id.toLowerCase() + "@surya.demo",
         phone: "9000000000",
         ownerType,
+        pincode,
         roofType: "RCC",
         roofArea: 40,
         monthlyBill: bill,
