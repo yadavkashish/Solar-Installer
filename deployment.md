@@ -1,73 +1,114 @@
-# Deployment guide — Surya Path
+# Deployment and reviewer guide — Surya Path
 
 Repository: https://github.com/yadavkashish/Solar-Installer
 
-Live service: https://solar-installer.onrender.com
+Live app: https://solar-installer.onrender.com
 
-The deployed service is a single Node web service: Express serves the built Vite application and its `/api` routes on the same origin. `GET /api/version` returns Render's `RENDER_GIT_COMMIT`; compare it with the pushed commit before describing a release as deployed.
+## Local prerequisites
 
-## Prerequisites
+- Node.js 20+ and npm 10+.
+- Docker Desktop (or another local PostgreSQL 16 instance).
+- Optional provider accounts for Cloudinary and Groq. The app can use its manual bill-entry path without provider credentials.
 
-Node 20+ and npm 10+. Copy `.env.example` to root `.env`; never commit it. Neon PostgreSQL is the recommended database; Docker PostgreSQL is optional for local-only development. The API uses database-backed Argon2 users/sessions, role and ownership checks, private Cloudinary bill storage, Groq bill extraction and Groq-assisted qualification with deterministic guardrails.
+## Local setup
 
-## Local development
+1. From the repository root, copy `.env.example` to `.env`. Keep `.env` local and untracked. Use only a local PostgreSQL URL for this setup. Set the required session secret locally; provider credentials are optional for manual-entry testing.
+2. Start the local database:
 
-```powershell
-npm install
-npx prisma migrate deploy
-npm run db:seed
-npm run dev -w @surya/api
-# in another terminal
-npm run dev -w @surya/web
-```
+   ```powershell
+   docker compose up -d
+   ```
 
-Open `http://localhost:5173`. The idempotent synthetic seed provides these development-only accounts:
+3. Install dependencies, generate Prisma Client, apply migrations to the local database, and seed synthetic fixtures:
+
+   ```powershell
+   npm ci
+   npm run db:generate
+   npx prisma migrate deploy
+   npm run db:seed
+   ```
+
+   The seed refuses any non-loopback database URL. It never resets or deletes records. It creates/updates only its explicitly synthetic users and three sample lead IDs, dated demo rules, one quote, one tracker and a public demo status link. If an ID exists as a non-sample record, the seed stops rather than replacing it.
+
+4. Start the API and web UI in separate terminals:
+
+   ```powershell
+   npm run dev -w @surya/api
+   ```
+
+   ```powershell
+   npm run dev -w @surya/web
+   ```
+
+5. Open `http://localhost:5173`. Run the available checks with:
+
+   ```powershell
+   npm run typecheck
+   npm test
+   npm run build:production
+   ```
+
+The repo's `docker-compose.yml` uses a local-only development database. Never point `migrate` or `db:seed` at production unless you have separately approved that operation.
+
+## Synthetic reviewer data
+
+Both demo users are active after the local seed. These are deliberately fake credentials for the synthetic demo only; do not reuse them for real services.
 
 | Role | Email | Password |
-| --- | --- | --- |
-| Sales | `sales@surya.demo` | `DemoPass!2026` |
-| Homeowner | `prashant@surya.demo` | `DemoPass!2026` |
+|---|---|---|
+| Sales | `demo-sales@example.com` | `DemoOnly!2026` |
+| Homeowner | `demo-homeowner@example.com` | `DemoOnly!2026` |
 
-## Production: one Node web service
+Seeded brief examples:
 
-The production service builds the Vite frontend and serves it from Express on the same origin as `/api`. It listens on `PORT` (default `3001` locally) on `0.0.0.0`. Application routes use the SPA fallback; unknown `/api/*` requests return JSON `404` rather than HTML.
+| Lead | Synthetic intake values | Expected result |
+|---|---|---|
+| LD-30881 — Prashant Wankhede | Owner, ₹3,200/month, 340 units/month, 3 kW | HIGH |
+| LD-30902 — Rohit Meshram | Tenant, ₹1,900/month, 210 units/month | LOW, no system-size recommendation; short call |
+| LD-30915 — Ayesha Siddiqui | Owner, ₹650/month, 85 units/month, 1 kW | LOW |
 
-```powershell
-npm ci
-npm run build:production
-npm run start
-```
+These are clearly marked synthetic records, not verified people or bills. The sample project has a dated-rule quote and an Installation Scheduled timeline; notifications are mock database events only. Example customer status path after local seeding:
 
-`npm run build:production` runs Prisma Client generation and builds both workspaces. `npm run start` runs `apps/api/dist/server.js`, which serves `apps/web/dist`. Use `/healthz` as the host health-check path; it is a process liveness response. `/api/healthz` additionally checks Neon and returns a safe `503` if PostgreSQL is unavailable.
+`http://localhost:5173/customer-status/public-demo-customer-status-link-LD-30881-2026`
 
-Prisma and the API load `DATABASE_URL` from the root `.env`. Use Neon’s pooled connection URL for the running API and retain its SSL options. Use a separate direct or disposable Neon branch/database only when Prisma development tooling requires a shadow database; never use the application database as its own shadow database. Docker remains optional: run `docker compose up -d` and use a local `DATABASE_URL` if you prefer it.
+The seed stores only the status-token hash. This fixed token is intentionally public and is for the synthetic sample project only.
 
-The production sequence is:
+## Render deployment
 
-```powershell
-npx prisma generate
-npx prisma migrate deploy
-npm run db:seed
-```
+The repository includes `render.yaml` with the intended service settings:
 
-`prisma migrate deploy` applies forward-only migrations and does not reset or reseed the database. The sample seed is idempotent, but it is not required for deploying existing customer data.
+- Branch: `master`; auto-deploy on push.
+- Build command: `npm ci && npm run build:production`.
+- Start command: `npm run start`.
+- Health check: `/healthz`.
+- `npm run build:production` generates Prisma Client and builds the Vite UI and API.
+- `npm run start` starts the API, which serves the built UI from the same origin.
 
-## Recorded checks
+For the existing Render service, confirm these settings manually in the dashboard because adding `render.yaml` does not prove that the existing service imported it:
 
-Current checks on 09 Nov 2026: `npm run typecheck` passed, `npm test` passed (17 files, 53 tests), and `npm run build:production` passed. `npx prisma migrate status --schema=prisma/schema.prisma` reported the Neon schema up to date. No migration, seed, reset, or provider request was run in this verification. The post-push `GET /api/version` check returned JSON `404`; the deployed revision is therefore unverified.
+1. Open the `solar-installer` Web Service and select **Settings**.
+2. Confirm the connected repository is `yadavkashish/Solar-Installer`, the root directory is the repository root, and the branch is `master`.
+3. Set **Build Command** to `npm ci && npm run build:production`.
+4. Set **Start Command** to `npm run start`.
+5. Set **Health Check Path** to `/healthz`.
+6. Enable automatic deploys from `master` (or use **Manual Deploy → Deploy latest commit** after a push).
+7. In **Environment**, confirm the variables listed below. `PORT` and `RENDER_GIT_COMMIT` are supplied by Render; do not add secrets to the repository.
+8. Save, deploy the latest `master` commit, and wait for Render to show the service as live.
+9. Check `https://solar-installer.onrender.com/healthz` and `https://solar-installer.onrender.com/api/version`. Both should include a `commit` matching the pushed `master` HEAD. `/api/healthz` separately checks database connectivity.
 
-## Environment
+Latest checked state before this source update: `/api/version` returned `d635dfdba922d6e3e785ffaf43cf98b4519cef91`; the `/healthz` browser request failed to load. This is not verification of the new source. No successful redeploy or new deployed SHA is claimed.
 
-Enter values for these names in the host’s Environment page; never commit a `.env` file: `DATABASE_URL`, `SESSION_SECRET`, `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`, `GROQ_API_KEY`, `GROQ_VISION_MODEL`, `NODE_ENV`, and `PUBLIC_ORIGIN`. Set `NODE_ENV=production` and `PUBLIC_ORIGIN=https://solar-installer.onrender.com`. Render provides `PORT`; do not set it manually. Set `WEB_ORIGIN` only if a separate browser origin must call the API; leave it unset for this same-origin deployment. `PUBLIC_ORIGIN` is required in production so customer status links never contain localhost. JPEG/PNG are supported for extraction; PDF extraction is intentionally unsupported and users can enter bill details manually.
+## Environment variable names
 
-## Hosting
+`DATABASE_URL`, `SESSION_SECRET`, `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`, `GROQ_API_KEY`, `GROQ_VISION_MODEL`, `NODE_ENV`, `PUBLIC_ORIGIN`, `WEB_ORIGIN` (only when a separate browser origin is used), `PORT` (Render-provided), and `RENDER_GIT_COMMIT` (Render-provided).
 
-Use a Render **Web Service**, connect the GitHub repository, choose branch `master`, set Build Command to `npm ci && npm run build:production`, Start Command to `npm run start`, and Health Check Path to `/healthz`. Apply `npx prisma migrate deploy` from an authorised environment before the first service release and for later forward migrations. Render’s Environment page is where the variables above are entered. This application keeps persistence in Neon and private bills in Cloudinary, not local storage. Bills are validated from memory, document metadata is persisted, and provider failures preserve the document for retry/manual entry. Quote PDFs use the issued snapshot; dated price, generation and subsidy rules are selected at issue time. Payment, WhatsApp/SMS, DISCOM and subsidy submission are mocked; no real external action occurs.
+## Hosting and external services
 
-Sales-created homeowner accounts remain unable to sign in until the seven-day, one-time activation link is redeemed. The creating sales user must relay the link securely; this application does not send activation email. The link is shown only in the authenticated creation response and can be reissued by creating another lead for a still-pending homeowner account.
+Render hosts the Node service. Neon PostgreSQL is the expected hosted database, Cloudinary stores private bill images, and Groq provides optional server-side extraction/qualification. The service must have already-applied compatible Prisma migrations before it can serve database-backed routes. No automatic migration or seed runs in the Render build/start commands. Do not run a production migration or seed without separate explicit authorization.
 
-After pushing a release, verify `GET https://solar-installer.onrender.com/api/version` reports the exact pushed commit. A public health response alone does not establish which source revision is running.
+## Known limitations and verification status
 
-## Known limitations
-
-The deployed public origin is listed above. Successful live Groq extraction/qualification remains unverified; automated provider tests use mocks. Fresh browser screenshots were not captured for this revision, and the final design document omits stale screenshots. Full Playwright browser regression coverage remains a future improvement. PDF bill extraction is intentionally unsupported; request a JPEG/PNG bill or use manual entry.
+- Database-backed local login, seed idempotence by repeat execution, the full lead-to-tracker walkthrough, and browser screenshots were not verified in this environment because local PostgreSQL/Docker was unavailable. The included deterministic seed-data tests do not replace running the seed twice against a disposable database.
+- The seed intentionally refuses non-loopback databases. The public Render service has not been seeded with these demo credentials; do not assume the documented sample login works on the live service until an authorized, safe provisioning method has been agreed and verified.
+- The rules are persisted and dated, but there is no admin rule editor. English/Hindi/Marathi coverage is partial. Bill PDF extraction and real outbound messaging are not implemented.
+- Live Groq/Cloudinary success, current policy eligibility, measured business outcomes, and a Render deployment of this source remain unverified.

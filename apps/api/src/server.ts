@@ -51,7 +51,7 @@ import {
   normaliseBillConfirmation,
   normaliseBillExtraction,
 } from "./bill-schema.js";
-import { recommend, score } from "./engine.js";
+import { recommendForLead, score } from "./engine.js";
 import { assessQualification } from "./qualification.js";
 import {
   createStatusToken,
@@ -161,7 +161,9 @@ async function enrichQualification(
     });
   }
 }
-app.get("/healthz", (_req, res) => res.json({ ok: true }));
+app.get("/healthz", (_req, res) =>
+  res.json({ ok: true, commit: process.env.RENDER_GIT_COMMIT ?? null }),
+);
 app.get("/api/version", (_req, res) =>
   res.json({ commit: process.env.RENDER_GIT_COMMIT ?? null }),
 );
@@ -623,7 +625,8 @@ app.put(
           found.lead.roofArea == null ? null : Number(found.lead.roofArea),
         tariff: input.data.tariff,
       });
-      const recommendation = recommend(
+      const recommendation = recommendForLead(
+        found.lead.ownerType,
         input.data.monthlyUnits,
         found.lead.roofArea == null ? null : Number(found.lead.roofArea),
       );

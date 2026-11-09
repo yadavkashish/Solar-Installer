@@ -79,8 +79,8 @@ function Login({
   setLanguage: (language: Language) => void;
 }) {
   const t = translate(language);
-  const [email, setEmail] = useState("sales@surya.demo"),
-    [password, setPassword] = useState("DemoPass!2026"),
+  const [email, setEmail] = useState("demo-sales@example.com"),
+    [password, setPassword] = useState("DemoOnly!2026"),
     [error, setError] = useState("");
   return (
     <main className="login">
@@ -116,7 +116,8 @@ function Login({
           <button className="primary">{t.signIn}</button>
         </form>
         <small>
-          Demo: sales@surya.demo or prashant@surya.demo; password DemoPass!2026.
+          Synthetic reviewer accounts: demo-sales@example.com and
+          demo-homeowner@example.com; password DemoOnly!2026.
         </small>
       </section>
     </main>

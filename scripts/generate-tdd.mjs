@@ -112,7 +112,15 @@ writeFileSync(join(buildDir, "word", "_rels", "document.xml.rels"), `<?xml versi
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${imageRelationships.map(({ id, name }) => `<Relationship Id="rId${id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${name}"/>`).join("")}</Relationships>`);
 
 rmSync(docxZipPath, { force: true });
-execFileSync("powershell.exe", ["-NoProfile", "-Command", "Compress-Archive -Path .tdd-docx-build\\* -DestinationPath .tdd-output.zip -CompressionLevel Optimal"], { cwd: root, stdio: "inherit" });
+const createDocxArchive = [
+  "$ErrorActionPreference = 'Stop'",
+  "Add-Type -AssemblyName System.IO.Compression",
+  "Add-Type -AssemblyName System.IO.Compression.FileSystem",
+  "$source = (Resolve-Path '.tdd-docx-build').Path",
+  "$archive = [System.IO.Compression.ZipFile]::Open('.tdd-output.zip', [System.IO.Compression.ZipArchiveMode]::Create)",
+  "try { Get-ChildItem -LiteralPath $source -Recurse -File | ForEach-Object { $entry = $_.FullName.Substring($source.Length + 1).Replace([char]92, [char]47); [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $_.FullName, $entry, [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null } } finally { $archive.Dispose() }",
+].join("; ");
+execFileSync("powershell.exe", ["-NoProfile", "-Command", createDocxArchive], { cwd: root, stdio: "inherit" });
 rmSync(generatedDocxPath, { force: true });
 renameSync(docxZipPath, generatedDocxPath);
 
