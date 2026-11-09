@@ -4,7 +4,7 @@ import {
   selectEffectiveRule,
   validateRuleWindows,
 } from "./repository.js";
-import { calculate, DEMO_RULES, score } from "./engine.js";
+import { calculate, DEMO_RULES, score, shortCallExplanation } from "./engine.js";
 
 const january = {
   effectiveFrom: new Date("2026-01-01T00:00:00.000Z"),
@@ -68,6 +68,23 @@ describe("dated quote rules", () => {
         tariff: "Residential",
       }).nextAction,
     ).toBe("Short sales call");
+  });
+
+  it("explains the short-call guardrail even when a tenant has a high score", () => {
+    expect(
+      shortCallExplanation({
+        ownerType: "TENANT",
+        monthlyUnits: 500,
+        roofArea: 60,
+      }),
+    ).toContain("not the property owner");
+    expect(
+      shortCallExplanation({
+        ownerType: "OWNER",
+        monthlyUnits: 500,
+        roofArea: 60,
+      }),
+    ).toBeNull();
   });
 
   it("keeps an issued calculation stable when a later rule changes", () => {

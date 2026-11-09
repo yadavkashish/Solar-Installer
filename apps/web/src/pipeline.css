@@ -1,0 +1,42 @@
+.lead a {
+  display: inline-block;
+  margin-top: 8px;
+  color: #195542;
+  font-weight: 700;
+}
+
+.pipeline-controls {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 12px;
+  margin: 0 0 16px;
+}
+
+.pipeline-controls input,
+.pipeline-controls select {
+  width: 100%;
+  border: 1px solid #cad6cc;
+  border-radius: 7px;
+  padding: 10px;
+}
+
+.guardrail-note {
+  border-left: 3px solid #b57926;
+  padding-left: 10px;
+}
+
+@media (max-width: 700px) {
+  .pipeline-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .lead {
+    min-width: 0;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .labels {
+    display: none;
+  }
+}

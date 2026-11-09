@@ -100,6 +100,22 @@ export function score(lead: {
     source: "baseline rules",
   };
 }
+export function shortCallExplanation(lead: {
+  ownerType: string;
+  monthlyUnits: number | null;
+  roofArea: number | null;
+}) {
+  const reasons: string[] = [];
+  if (lead.ownerType === "TENANT")
+    reasons.push("the resident is not the property owner");
+  if ((lead.monthlyUnits ?? 0) < 200)
+    reasons.push("reported monthly electricity use is below 200 units");
+  if ((lead.roofArea ?? 0) < 25)
+    reasons.push("reported roof area still needs survey confirmation");
+  return reasons.length
+    ? `Short call recommended because ${reasons.join(" and ")}. This follow-up guardrail applies even when the score band is high.`
+    : null;
+}
 export function recommend(units: number | null, roof: number | null) {
   if (!units)
     return { kw: null, note: "Confirm average monthly units before sizing." };

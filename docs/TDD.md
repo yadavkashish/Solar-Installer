@@ -13,7 +13,9 @@ After bill confirmation, Groq qualification receives only ownership, roof type/a
 
 English, Hindi and Marathi selection is available before sign-in, in authenticated navigation, intake, bill review, quote/project headings and customer-status views. Numeric values, identifiers and units remain unchanged.
 
-Actual checks: `npx prisma validate`, `npm run typecheck`, `npm run test` (10 files, 31 tests) and `npm run build` passed. The forward migration adding nullable lead pincode and assessment provenance applied successfully to Neon; the seed ran twice successfully. A later read-only `prisma migrate status` retry hit intermittent Neon `P1001`; no reset or schema change followed. A live synthetic lead was created, a private PNG was uploaded to Cloudinary and downloaded server-side. Groq extraction timed out at its bounded limit and correctly entered manual review. Successful live extraction/qualification, full browser language coverage, Playwright and public deployment remain unverified.
+The sales workspace uses the same lead flow as homeowner intake. Sales staff can add a customer lead; the API creates or matches a HOMEOWNER account for the customer, records `SALES_CREATED` provenance and the staff creator separately, and never stores the salesperson as the homeowner. Search supports customer name/lead ID, readiness, and project-stage filters. Brief-supplied fictional scenarios are explicitly marked as samples; repeat seeding preserves confirmed bill values. The UI displays the persisted assessment source (Groq-assisted or baseline fallback) and explains why deterministic short-call guardrails can override a high band.
+
+Actual checks: `npx prisma validate`, `npm run typecheck`, `npm run test` (11 files, 33 tests) and `npm run build:production` passed. The forward migration adding sales-lead provenance and sample markers applied successfully to Neon; the seed ran twice successfully. A live synthetic lead was created, a private PNG was uploaded to Cloudinary and downloaded server-side. Groq extraction timed out at its bounded limit and correctly entered manual review. Successful live extraction/qualification, Playwright/browser interaction checks, and public deployment remain unverified.
 
 ## Problem and core scope
 
@@ -21,7 +23,7 @@ Surya Path replaces fragmented WhatsApp/Excel lead capture with a focused workfl
 
 ## Architecture and flows
 
-React/Vite presents role-focused screens and uses TanStack Query. An Express/TypeScript API validates requests with Zod and owns deterministic calculations. The supplied Prisma/PostgreSQL schema models users, leads, documents, rules, quotes, projects, stage events and hashed status tokens. The runnable assessment demo seeds in memory so it works without infrastructure; production persistence is the Prisma target.
+React/Vite presents role-focused screens and uses TanStack Query. An Express/TypeScript API validates requests with Zod and owns deterministic calculations. Prisma/PostgreSQL persists users, customer-owned leads, sales-creation provenance, private documents, rules, quotes, projects, stage events and hashed status tokens.
 
 The flow is intake → private bill upload/extraction → human confirmation → baseline qualification/sizing → survey → immutable quote snapshot/PDF → ordered project stages → customer-safe status view.
 
@@ -39,8 +41,8 @@ Production controls include bcrypt/Argon password hashing, HttpOnly secure sessi
 
 ## Assumption register / cuts
 
-The generation, roof, price, self-consumption, rate, and fractional subsidy policies are explicit demo assumptions. Quote rules require policy verification. Hindi/Marathi, real extraction wiring, actual uploads, customer token issuance, DB migrations/seed implementation, Playwright coverage and deployment were cut to protect the core working flow. Next: complete persistence/auth and upload adapter, then provider/live test, token status links, and browser tests.
+The generation, roof, price, self-consumption, rate, and fractional subsidy policies are explicit demo assumptions. Quote rules require policy verification. Roof-type choices are intake assumptions, not engineering certification. Browser automation and a public deployment remain outstanding; live Groq success remains unverified because the bounded provider request timed out during the recorded check.
 
 ## Verification record
 
-Engine tests cover subsidy cap, fractional policy, commercial ineligibility, generation/payback and roof constraint. Type/build results must be copied from the final command run before submission; no live AI call was made because credentials were unavailable.
+Tests cover subsidy cap, fractional policy, commercial ineligibility, generation/payback, roof constraint, short-call guardrails, bill contracts, Groq contracts, status links, saved-quote mapping and route parsing. The final recorded commands are `npm run typecheck`, `npm run test` (33 tests), and `npm run build:production`.

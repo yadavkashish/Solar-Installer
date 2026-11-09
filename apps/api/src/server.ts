@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import {
   createLead,
+  createSalesLead,
   db,
   findLead,
   listLeads,
@@ -16,6 +17,7 @@ import {
   persistStage,
   quoteView,
   RuleConfigurationError,
+  LeadOwnershipError,
   stages,
 } from "./repository.js";
 import {
@@ -236,11 +238,21 @@ app.get("/api/leads/:id", session, ownsLead, async (req, res) => {
   if (!lead) return res.sendStatus(404);
   res.json(lead);
 });
-app.post("/api/leads", session, csrf, role("HOMEOWNER"), async (req, res) => {
+app.post("/api/leads", session, csrf, role("HOMEOWNER", "SALES"), async (req, res) => {
   const input = leadInput.safeParse(req.body);
   if (!input.success)
     return res.status(400).json({ error: "Check required details" });
-  res.status(201).json(await createLead(input.data, req.principal!.id));
+  try {
+    const lead =
+      req.principal!.role === "SALES"
+        ? await createSalesLead(input.data, req.principal!.id)
+        : await createLead(input.data, req.principal!.id);
+    res.status(201).json(lead);
+  } catch (error) {
+    if (error instanceof LeadOwnershipError)
+      return res.status(409).json({ error: error.message });
+    throw error;
+  }
 });
 app.put("/api/leads/:id/bill", session, csrf, ownsLead, async (req, res) => {
   const input = z

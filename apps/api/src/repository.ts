@@ -1,10 +1,12 @@
 import crypto from "node:crypto";
 import "./env.js";
 import { PrismaClient } from "@prisma/client";
+import argon2 from "argon2";
 import { z } from "zod";
 import { calculate, recommend, score } from "./engine.js";
 export const db = new PrismaClient();
 export class RuleConfigurationError extends Error {}
+export class LeadOwnershipError extends Error {}
 const calculationSchema = z.object({
   capacityKw: z.number(),
   grossCost: z.number(),
@@ -138,6 +140,7 @@ const includeLead = {
   assessment: true,
   quotes: { orderBy: { version: "desc" } as const, take: 1 },
   project: { include: { events: true } },
+  createdBy: { select: { id: true, name: true } },
 };
 const asLead = (l: any) => ({
   ...l,
@@ -156,6 +159,7 @@ const asLead = (l: any) => ({
     : undefined,
   recommendation: l.assessment?.recommendation,
   quote: l.quotes?.[0] ? quoteView(l.quotes[0]) : undefined,
+  createdBy: l.createdBy ?? null,
 });
 export async function listLeads() {
   return (
@@ -178,6 +182,7 @@ export async function createLead(data: any, ownerId: string) {
       ...data,
       id,
       ownerId,
+      creationSource: "HOMEOWNER_SELF_SERVICE",
       assessment: {
         create: {
           source: baseline.source,
@@ -191,6 +196,67 @@ export async function createLead(data: any, ownerId: string) {
       },
     },
     include: includeLead,
+  });
+  return asLead(lead);
+}
+/**
+ * Sales may record an intake on a customer's behalf.  The lead always belongs
+ * to a HOMEOWNER record (an existing one by email, or a provisioned customer
+ * record) and separately records the staff member who created it.
+ */
+export async function createSalesLead(data: any, salesUserId: string) {
+  const baseline = score(data);
+  const recommendation = recommend(data.monthlyUnits, data.roofArea);
+  const id = "LD-" + Math.floor(31000 + Math.random() * 800);
+  const provisionalPasswordHash = await argon2.hash(
+    crypto.randomBytes(32).toString("base64url"),
+  );
+  const lead = await db.$transaction(async (tx) => {
+    const existing = await tx.user.findUnique({ where: { email: data.email } });
+    if (existing && existing.role !== "HOMEOWNER")
+      throw new LeadOwnershipError(
+        "A sales account cannot be used as the homeowner for a customer lead.",
+      );
+    const homeowner =
+      existing ??
+      (await tx.user.create({
+        data: {
+          email: data.email,
+          name: data.name,
+          role: "HOMEOWNER",
+          // This is a non-disclosed, random placeholder: it cannot be used as
+          // a staff password or exposed through the API.
+          passwordHash: provisionalPasswordHash,
+        },
+      }));
+    return tx.lead.create({
+      data: {
+        ...data,
+        id,
+        ownerId: homeowner.id,
+        createdById: salesUserId,
+        creationSource: "SALES_CREATED",
+        assessment: {
+          create: {
+            source: baseline.source,
+            score: baseline.points,
+            band: baseline.band,
+            reasons: baseline.reasons,
+            nextAction: baseline.nextAction,
+            recommendation,
+            assessedAt: new Date(),
+          },
+        },
+        audits: {
+          create: {
+            actorId: salesUserId,
+            action: "SALES_LEAD_CREATED",
+            metadata: { ownerId: homeowner.id },
+          },
+        },
+      },
+      include: includeLead,
+    });
   });
   return asLead(lead);
 }

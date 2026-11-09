@@ -14,6 +14,10 @@ enum LeadStatus {
  REVIEWING
  QUOTE_ISSUED
 }
+enum LeadSource {
+ HOMEOWNER_SELF_SERVICE
+ SALES_CREATED
+}
 model User {
  id String @id @default(cuid())
  email String @unique
@@ -21,6 +25,7 @@ model User {
  role Role
  name String
  leads Lead[] @relation("OwnerLeads")
+ createdLeads Lead[] @relation("CreatorLeads")
  sessions Session[]
  createdAt DateTime @default(now())
 }
@@ -51,6 +56,11 @@ model Lead {
  status LeadStatus @default(NEW)
  ownerId String
  owner User @relation("OwnerLeads",fields:[ownerId],references:[id])
+ creationSource LeadSource @default(HOMEOWNER_SELF_SERVICE)
+ createdById String?
+ createdBy User? @relation("CreatorLeads",fields:[createdById],references:[id],onDelete:SetNull)
+ isSample Boolean @default(false)
+ sampleScenario String?
  assessment QualificationAssessment?
  documents BillDocument[]
  quotes Quote[]

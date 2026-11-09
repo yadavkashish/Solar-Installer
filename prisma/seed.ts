@@ -53,38 +53,71 @@ async function main() {
         version: rule.version,
       },
     });
-  for (const [id, name, bill, units, ownerType, pincode] of [
-    ["LD-30881", "Demo Owner One", 3200, 340, "OWNER", "440001"],
-    ["LD-30902", "Demo Tenant One", 1900, 210, "TENANT", "440010"],
-    ["LD-30915", "Demo Owner Two", 650, 85, "OWNER", "440022"],
-  ] as const) {
+  const sampleLeads = [
+    ["LD-30881", "Prashant Wankhede", 3200, 340, "OWNER", "440001", "Owner with a typical residential bill"],
+    ["LD-30902", "Rohit Meshram", 1900, 210, "TENANT", "440010", "Tenant: short sales call before survey"],
+    ["LD-30915", "Ayesha Siddiqui", 650, 85, "OWNER", "440022", "Low consumption: savings discussion"],
+    ["LD-30921", "Demo Commercial", 5200, 560, "OWNER", "440008", "Commercial tariff: subsidy review"],
+    ["LD-30924", "Pending Confirmation", 2500, null, "OWNER", "440014", "Bill values need confirmation"],
+    ["LD-30931", "Roof constrained", 4200, 420, "OWNER", "440030", "Reported roof area constrains preliminary size"],
+  ] as const;
+  for (const [id, name, bill, units, ownerType, pincode, sampleScenario] of sampleLeads) {
     const baseline = score({
       ownerType,
       monthlyUnits: units,
-      roofArea: 40,
-      tariff: "Residential",
+      roofArea: id === "LD-30931" ? 18 : 40,
+      tariff: id === "LD-30921" ? "Commercial" : "Residential",
     });
-    const recommendation = recommend(units, 40);
-    await db.lead.upsert({
-      where: { id },
-      update: {
-        name,
-        monthlyBill: bill,
-        monthlyUnits: units,
-        ownerType,
-        pincode,
-        assessment: {
-          update: {
-            source: baseline.source,
-            score: baseline.points,
-            band: baseline.band,
-            reasons: baseline.reasons,
-            nextAction: baseline.nextAction,
-            recommendation,
+    const roofArea = id === "LD-30931" ? 18 : 40;
+    const recommendation = recommend(units, roofArea);
+    const existing = await db.lead.findUnique({ where: { id } });
+    if (existing) {
+      // Mark stable, brief-provided fixtures without replacing a confirmed
+      // customer bill or assessment that someone has already reviewed.
+      await db.lead.update({
+        where: { id },
+        // These fixed IDs are the brief fixtures; this restores their names
+        // while deliberately leaving confirmed bill values untouched.
+        data: { name, isSample: true, sampleScenario },
+      });
+      if (existing.billStatus !== "CONFIRMED") {
+        await db.lead.update({
+          where: { id },
+          data: {
+            name,
+            monthlyBill: bill,
+            monthlyUnits: units,
+            ownerType,
+            pincode,
+            roofArea,
+            tariff: id === "LD-30921" ? "Commercial" : "Residential",
+            assessment: {
+              upsert: {
+                create: {
+                  source: baseline.source,
+                  score: baseline.points,
+                  band: baseline.band,
+                  reasons: baseline.reasons,
+                  nextAction: baseline.nextAction,
+                  recommendation,
+                },
+                update: {
+                  source: baseline.source,
+                  score: baseline.points,
+                  band: baseline.band,
+                  reasons: baseline.reasons,
+                  nextAction: baseline.nextAction,
+                  recommendation,
+                },
+              },
+            },
           },
-        },
-      },
-      create: {
+        });
+      }
+      continue;
+    }
+    await db.lead.create({
+      data: {
         id,
         name,
         email: id.toLowerCase() + "@surya.demo",
@@ -92,11 +125,13 @@ async function main() {
         ownerType,
         pincode,
         roofType: "RCC",
-        roofArea: 40,
+        roofArea,
         monthlyBill: bill,
         monthlyUnits: units,
-        tariff: "Residential",
+        tariff: id === "LD-30921" ? "Commercial" : "Residential",
         ownerId: homeowner.id,
+        isSample: true,
+        sampleScenario,
         assessment: {
           create: {
             source: baseline.source,

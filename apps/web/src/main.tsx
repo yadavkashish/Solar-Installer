@@ -26,6 +26,7 @@ import {
   type Translation,
 } from "./i18n";
 import "./style.css";
+import "./pipeline.css";
 const leadTabs: { id: LeadTab; label: string }[] = [
   { id: "overview", label: "overview" },
   { id: "bill", label: "bill review" },
@@ -126,9 +127,11 @@ function Header({ set }: { set: (x: string) => void }) {
 function List({
   open,
   onSessionExpired,
+  role,
 }: {
   open: (id: string) => void;
   onSessionExpired: () => void;
+  role: CurrentUser["role"];
 }) {
   const {
     data = [],
@@ -141,15 +144,72 @@ function List({
   useEffect(() => {
     if (error instanceof SessionExpired) onSessionExpired();
   }, [error, onSessionExpired]);
+  const [query, setQuery] = useState("");
+  const [readiness, setReadiness] = useState("ALL");
+  const [stage, setStage] = useState("ALL");
+  const visible = data.filter((lead: any) => {
+    const term = query.trim().toLowerCase();
+    const leadStage = lead.project?.stage || "NOT_STARTED";
+    return (
+      (!term ||
+        lead.name.toLowerCase().includes(term) ||
+        lead.id.toLowerCase().includes(term)) &&
+      (readiness === "ALL" || lead.score?.band === readiness) &&
+      (stage === "ALL" || leadStage === stage)
+    );
+  });
   return (
     <main>
       <div className="head">
         <div>
           <p className="eyebrow">SALES WORKSPACE</p>
-          <h1>Lead pipeline</h1>
-          <p>Transparent baseline scoring, never auto-rejection.</p>
+          <h1>{role === "SALES" ? "Sales pipeline" : "My solar leads"}</h1>
+          <p>Transparent scoring; every lead remains actionable.</p>
         </div>
       </div>
+      <section className="pipeline-controls" aria-label="Find and filter leads">
+        <label>
+          Search customer or lead ID
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="e.g. Ayesha or LD-30915"
+          />
+        </label>
+        <label>
+          Readiness
+          <select
+            value={readiness}
+            onChange={(event) => setReadiness(event.target.value)}
+          >
+            <option value="ALL">All readiness</option>
+            <option value="HIGH">High</option>
+            <option value="MEDIUM">Medium</option>
+            <option value="LOW">Low</option>
+          </select>
+        </label>
+        <label>
+          Project stage
+          <select
+            value={stage}
+            onChange={(event) => setStage(event.target.value)}
+          >
+            <option value="ALL">All stages</option>
+            <option value="NOT_STARTED">Not started</option>
+            <option value="Advance recorded (demo)">Advance recorded</option>
+            <option value="Site survey complete">Site survey complete</option>
+            <option value="Installation scheduled">
+              Installation scheduled
+            </option>
+            <option value="Installed">Installed</option>
+            <option value="Net-metering submitted">
+              Net-metering submitted
+            </option>
+            <option value="Commissioned">Commissioned</option>
+            <option value="Subsidy credited">Subsidy credited</option>
+          </select>
+        </label>
+      </section>
       <section className="card table">
         <div className="row labels">
           <span>Customer</span>
@@ -160,10 +220,11 @@ function List({
         {isLoading ? (
           <p>Loading leads…</p>
         ) : (
-          data.map((l: any) => (
-            <button className="row lead" onClick={() => open(l.id)} key={l.id}>
+          visible.map((l: any) => (
+            <div className="row lead" key={l.id}>
               <span>
                 <b>{l.name}</b>
+                {l.isSample && <small>Brief sample: {l.sampleScenario}</small>}
                 <small>
                   {l.id} · {l.ownerType}
                 </small>
@@ -173,17 +234,40 @@ function List({
                   {l.score.band} · {l.score.points}
                 </em>
                 <small>{l.score.reasons[0]}</small>
+                <small>
+                  Assessment: {l.score.source || "Baseline fallback"}
+                </small>
               </span>
               <span>{l.recommendation.kw ?? "—"} kW</span>
-              <span>{l.score.nextAction}</span>
-            </button>
+              <span>
+                {l.score.nextAction}
+                <a
+                  href={leadPath(l.id)}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    open(l.id);
+                  }}
+                  aria-label={`View lead ${l.name}`}
+                >
+                  View lead
+                </a>
+              </span>
+            </div>
           ))
         )}
       </section>
     </main>
   );
 }
-function New({ done, t }: { done: (x: any) => void; t: Translation }) {
+function New({
+  done,
+  t,
+  role,
+}: {
+  done: (x: any) => void;
+  t: Translation;
+  role: CurrentUser["role"];
+}) {
   const [f, setF] = useState<any>({
       name: "",
       email: "",
@@ -202,7 +286,7 @@ function New({ done, t }: { done: (x: any) => void; t: Translation }) {
     [busy, setBusy] = useState(false);
   const change = (k: string, v: string) => setF({ ...f, [k]: v });
   const saveAndUpload = async () => {
-    if (!bill) {
+    if (!bill && role === "HOMEOWNER") {
       setErr(t.selectBill);
       return;
     }
@@ -222,7 +306,7 @@ function New({ done, t }: { done: (x: any) => void; t: Translation }) {
         });
         setCreatedLead(lead);
       }
-      await upload("/leads/" + lead.id + "/bill/upload", bill);
+      if (bill) await upload("/leads/" + lead.id + "/bill/upload", bill);
       done(lead);
     } catch (x: any) {
       setErr(
@@ -237,7 +321,13 @@ function New({ done, t }: { done: (x: any) => void; t: Translation }) {
   return (
     <main className="narrow">
       <p className="eyebrow">{t.intake}</p>
-      <h1>{t.rooftop}</h1>
+      <h1>{role === "SALES" ? "Add customer lead" : t.rooftop}</h1>
+      {role === "SALES" && (
+        <p>
+          This creates a customer-owned lead and records you as the staff
+          creator. It never assigns the lead to your sales account.
+        </p>
+      )}
       <form
         className="card form"
         onSubmit={async (e) => {
@@ -302,11 +392,13 @@ function New({ done, t }: { done: (x: any) => void; t: Translation }) {
         <div className="upload">
           <b>{t.billUpload}</b>
           <span>
-            JPEG or PNG only. It is uploaded privately after the lead is saved;
-            if upload fails, retry without creating another lead.
+            JPEG or PNG only.{" "}
+            {role === "SALES" ? "Optional while taking intake. " : ""}It is
+            uploaded privately after the lead is saved; if upload fails, retry
+            without creating another lead.
           </span>
           <input
-            required={!createdLead}
+            required={!createdLead && role === "HOMEOWNER"}
             type="file"
             accept="image/png,image/jpeg"
             onChange={(event) => setBill(event.target.files?.[0] ?? null)}
@@ -318,7 +410,9 @@ function New({ done, t }: { done: (x: any) => void; t: Translation }) {
             ? "Saving…"
             : createdLead
               ? "Retry bill upload"
-              : "Save and review bill"}
+              : role === "SALES"
+                ? "Create customer lead"
+                : "Save and review bill"}
         </button>
       </form>
     </main>
@@ -700,7 +794,22 @@ function Detail({
             <p>
               <b>Next action:</b> {l.score.nextAction}
             </p>
-            <small>Source: baseline rules. Low scores remain actionable.</small>
+            {l.score.nextAction === "Short sales call" && (
+              <p className="guardrail-note">
+                Short call recommended because{" "}
+                {l.ownerType === "TENANT"
+                  ? "the resident is not the property owner"
+                  : l.monthlyUnits < 200
+                    ? "reported electricity use is below 200 units"
+                    : "reported roof area needs survey confirmation"}
+                . This guardrail applies even when the score band is high.
+              </p>
+            )}
+            <small>
+              Assessment source: {l.score.source || "Baseline fallback"}
+              {l.score.model ? ` (${l.score.model})` : ""}. Low scores remain
+              actionable.
+            </small>
           </article>
           <article className="card">
             <h2>Preliminary recommendation</h2>
@@ -950,20 +1059,21 @@ function App() {
         </button>
         <nav>
           <button onClick={() => navigate("/leads")}>{t.leads}</button>
-          {user.role === "HOMEOWNER" && (
-            <button onClick={() => navigate("/leads/new")}>{t.newLead}</button>
-          )}
+          <button onClick={() => navigate("/leads/new")}>
+            {user.role === "SALES" ? "Add lead" : t.newLead}
+          </button>
           <button onClick={signOut}>{t.logout}</button>
         </nav>
         <LanguagePicker language={language} setLanguage={setLanguage} />
         <i>{user.role === "SALES" ? "SS" : "HW"}</i>
       </header>
-      {route.kind === "new" && user.role === "HOMEOWNER" ? (
+      {route.kind === "new" ? (
         <New
           done={(x) => {
             navigate(leadPath(x.id, "bill"));
           }}
           t={t}
+          role={user.role}
         />
       ) : route.kind === "lead" ? (
         <LeadRoute
@@ -977,6 +1087,7 @@ function App() {
         <List
           open={(id) => navigate(leadPath(id))}
           onSessionExpired={sessionExpired}
+          role={user.role}
         />
       ) : (
         <main>
