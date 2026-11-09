@@ -11,7 +11,7 @@
     "start": "npm run start -w @surya/api",
     "test": "npm run test -w @surya/api",
     "typecheck": "npm run typecheck -w @surya/web && npm run typecheck -w @surya/api",
-    "db:generate": "prisma generate",
+    "db:generate": "npm run db:generate -w @surya/api",
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts"
   }
