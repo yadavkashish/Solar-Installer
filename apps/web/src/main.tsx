@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import type { FormEvent } from "react";
 import {
   QueryClient,
   QueryClientProvider,
@@ -496,7 +497,7 @@ function Quote({
       <p className="eyebrow">SAVED SNAPSHOT · {quote.id}</p>
       <h2>{c.capacityKw} kW solar system</h2>
       <strong>{rupee(c.netCost)}</strong>
-      <p>Estimated cost after subsidy</p>
+      <p>Estimated net cost; subsidy eligibility requires review</p>
       <hr />
       <p>
         Gross installed cost <b>{rupee(c.grossCost)}</b>
@@ -518,8 +519,84 @@ function Quote({
       </button>
       {error && <p className="error">{error}</p>}
       <small>
-        {c.assumptions.subsidyNote} Savings are estimates, not guarantees.
+        {c.assumptions.subsidyNote} Subsidy eligibility and savings require
+        policy and site review; neither is guaranteed.
       </small>
+    </article>
+  );
+}
+function SurveyForm({
+  lead,
+  onSaved,
+  onSessionExpired,
+}: {
+  lead: any;
+  onSaved: (lead: any) => void;
+  onSessionExpired: () => void;
+}) {
+  const [usableRoofArea, setUsableRoofArea] = useState(
+    lead.survey?.usableRoofArea?.toString() ?? "",
+  );
+  const [findings, setFindings] = useState(lead.survey?.findings ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    setUsableRoofArea(lead.survey?.usableRoofArea?.toString() ?? "");
+    setFindings(lead.survey?.findings ?? "");
+  }, [lead.id, lead.survey?.updatedAt]);
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      onSaved(
+        await api("/leads/" + lead.id + "/survey", {
+          method: "PUT",
+          body: JSON.stringify({
+            usableRoofArea,
+            findings: findings.trim() || null,
+          }),
+        }),
+      );
+    } catch (e: any) {
+      if (e instanceof SessionExpired) onSessionExpired();
+      else setError(e.message || "Survey findings could not be saved.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <article className="card">
+      <h2>{lead.survey ? "Update sales survey" : "Record sales survey"}</h2>
+      <p>
+        Record usable roof area before issuing a post-survey quote. This is not
+        a calendar booking.
+      </p>
+      <form className="survey-form" onSubmit={save}>
+        <label>
+          Usable roof area (m²)
+          <input
+            required
+            min="0.5"
+            step="0.5"
+            type="number"
+            value={usableRoofArea}
+            onChange={(event) => setUsableRoofArea(event.target.value)}
+          />
+        </label>
+        <label>
+          Survey findings (optional)
+          <textarea
+            maxLength={1000}
+            value={findings}
+            onChange={(event) => setFindings(event.target.value)}
+          />
+        </label>
+        {error && <p className="error">{error}</p>}
+        <button className="primary" disabled={busy}>
+          {busy ? "Saving survey…" : "Save survey findings"}
+        </button>
+      </form>
     </article>
   );
 }
@@ -701,14 +778,16 @@ function Detail({
   navigate: (path: string) => void;
   t: Translation;
 }) {
+  const suggestedCapacity = (lead: any) =>
+    lead.surveyedSizing?.recommendedKw ?? lead.recommendation?.kw ?? 3;
   const [l, setL] = useState(x),
-    [kw, setKw] = useState(x.recommendation.kw || 3),
+    [kw, setKw] = useState(suggestedCapacity(x)),
     [quoteBusy, setQuoteBusy] = useState(false),
     [quoteError, setQuoteError] = useState(""),
     qc = useQueryClient();
   useEffect(() => {
     setL(x);
-    setKw(x.recommendation.kw || 3);
+    setKw(suggestedCapacity(x));
   }, [x]);
   const issue = async () => {
     setQuoteBusy(true);
@@ -787,7 +866,7 @@ function Detail({
       {tab === "overview" && (
         <section className="grid">
           <article className="card">
-            <h2>Why this lead is prioritised</h2>
+            <h2>Saved qualification assessment</h2>
             {l.score.reasons.map((r: string) => (
               <p key={r}>✓ {r}</p>
             ))}
@@ -806,13 +885,31 @@ function Detail({
               </p>
             )}
             <small>
-              Assessment source: {l.score.source || "Baseline fallback"}
-              {l.score.model ? ` (${l.score.model})` : ""}. Low scores remain
-              actionable.
+              Saved source: {l.score.source || "Baseline fallback"}
+              <br />
+              Model: {l.score.model || "No provider model — baseline fallback"}
+              <br />
+              Assessed: {l.score.assessedAt ? new Date(l.score.assessedAt).toLocaleString() : "Recorded time unavailable"}
             </small>
           </article>
           <article className="card">
             <h2>Preliminary recommendation</h2>
+            <p>
+              Confirmed inputs: {l.ownerType === "OWNER" ? "Property owner" : "Tenant"}; tariff {l.tariff || "needs confirmation"}; {l.monthlyUnits ?? "unknown"} monthly units; {rupee(l.monthlyBill)} monthly bill; intake roof area {l.roofArea ?? "needs survey"} m².
+            </p>
+            <p>
+              Consumption-based capacity: {l.preliminarySizing?.consumptionBasedKw ?? "—"} kW
+              <br />
+              Intake-roof limit: {l.preliminarySizing?.roofLimitedKw ?? "Needs survey"} kW
+            </p>
+            <small>
+              Uses 1,400 units/kW/year and a roof planning assumption of 10 m²/kW, rounded down to 0.5 kW. The lower applicable capacity is preliminary only.
+            </small>
+            {role === "SALES" && l.score.nextAction === "Book a roof survey" && (
+              <button className="secondary" onClick={() => navigate(leadPath(l.id, "quote"))}>
+                Record survey findings
+              </button>
+            )}
             <strong className="size">{l.recommendation.kw ?? "—"} kW</strong>
             <p>{l.recommendation.note}</p>
           </article>
@@ -855,8 +952,23 @@ function Detail({
       )}
       {tab === "quote" && (
         <section className="grid">
+          {role === "SALES" && (
+            <SurveyForm
+              lead={l}
+              onSessionExpired={onSessionExpired}
+              onSaved={(updated) => {
+                setL(updated);
+                setKw(updated.surveyedSizing?.recommendedKw ?? kw);
+                qc.invalidateQueries({ queryKey: ["leads"] });
+              }}
+            />
+          )}
+          {role === "SALES" && l.survey ? (
           <article className="card">
             <h2>{t.quote}</h2>
+            <p>
+              Post-survey quote capacity. Usable surveyed roof: {l.survey.usableRoofArea} m²; roof limit: {l.surveyedSizing?.roofLimitedKw} kW; consumption-based capacity: {l.surveyedSizing?.consumptionBasedKw ?? "Needs confirmed units"} kW.
+            </p>
             <label>
               {t.capacity}
               <input
@@ -875,6 +987,11 @@ function Detail({
             </button>
             {quoteError && <p className="error">{quoteError}</p>}
           </article>
+          ) : role === "SALES" ? (
+            <article className="card"><h2>Survey required before quote</h2><p>Save usable roof area above to calculate a post-survey quote. Existing issued quote snapshots remain unchanged.</p></article>
+          ) : (
+            <article className="card"><h2>{t.quote}</h2><p>Sales prepares post-survey quotes. Any saved quote remains available beside this message.</p></article>
+          )}
           {l.quote ? (
             <Quote q={l.quote} onSessionExpired={onSessionExpired} />
           ) : (

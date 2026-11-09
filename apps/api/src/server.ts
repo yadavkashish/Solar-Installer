@@ -18,6 +18,8 @@ import {
   quoteView,
   RuleConfigurationError,
   LeadOwnershipError,
+  SurveyCapacityError,
+  SurveyRequiredError,
   stages,
 } from "./repository.js";
 import {
@@ -602,6 +604,60 @@ app.post(
   },
 );
 app.post(
+  "/api/leads/:id/survey",
+  session,
+  csrf,
+  role("SALES"),
+  async (req, res) => {
+    const id = req.params.id;
+    if (Array.isArray(id))
+      return res.status(400).json({ error: "Invalid lead id" });
+    const input = z
+      .object({
+        usableRoofArea: z.coerce.number().positive().max(10_000),
+        findings: z.string().trim().max(1_000).nullable().optional(),
+      })
+      .safeParse(req.body);
+    if (!input.success)
+      return res.status(400).json({
+        error: "Enter a usable roof area greater than zero and concise survey findings.",
+        issues: input.error.flatten().fieldErrors,
+      });
+    const updated = await db.$transaction(async (tx) => {
+      const lead = await tx.lead.findUnique({ where: { id } });
+      if (!lead) return null;
+      await tx.survey.upsert({
+        where: { leadId: id },
+        create: {
+          leadId: id,
+          usableRoofArea: input.data.usableRoofArea,
+          findings: input.data.findings || null,
+          surveyedById: req.principal!.id,
+        },
+        update: {
+          usableRoofArea: input.data.usableRoofArea,
+          findings: input.data.findings || null,
+          surveyedById: req.principal!.id,
+        },
+      });
+      await tx.auditEvent.create({
+        data: {
+          leadId: id,
+          actorId: req.principal!.id,
+          action: "SALES_SURVEY_SAVED",
+          metadata: {
+            usableRoofArea: input.data.usableRoofArea,
+            hasFindings: Boolean(input.data.findings),
+          },
+        },
+      });
+      return true;
+    });
+    if (!updated) return res.sendStatus(404);
+    res.json(await findLead(id));
+  },
+);
+app.post(
   "/api/leads/:id/quote",
   session,
   csrf,
@@ -619,6 +675,8 @@ app.post(
       res.json(await persistQuote(id, input.data.kw));
     } catch (error: any) {
       if (error?.code === "P2025") return res.sendStatus(404);
+      if (error instanceof SurveyRequiredError || error instanceof SurveyCapacityError)
+        return res.status(422).json({ error: error.message });
       if (error instanceof RuleConfigurationError)
         return res.status(422).json({ error: error.message });
       console.error("quote.issue.failed", {

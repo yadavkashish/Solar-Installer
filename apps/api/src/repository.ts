@@ -3,10 +3,12 @@ import "./env.js";
 import { PrismaClient } from "@prisma/client";
 import argon2 from "argon2";
 import { z } from "zod";
-import { calculate, recommend, score } from "./engine.js";
+import { calculate, recommend, score, sizing } from "./engine.js";
 export const db = new PrismaClient();
 export class RuleConfigurationError extends Error {}
 export class LeadOwnershipError extends Error {}
+export class SurveyRequiredError extends Error {}
+export class SurveyCapacityError extends Error {}
 const calculationSchema = z.object({
   capacityKw: z.number(),
   grossCost: z.number(),
@@ -34,6 +36,14 @@ const quoteSnapshotSchema = z.object({
   issuedAt: z.string().optional(),
   ruleEffectiveDates: z.record(z.string()).optional(),
   calculation: calculationSchema,
+  survey: z
+    .object({
+      usableRoofArea: z.number(),
+      consumptionBasedKw: z.number().nullable(),
+      roofLimitedKw: z.number().nullable(),
+      recommendedKw: z.number().nullable(),
+    })
+    .optional(),
 });
 const pricePayload = z.object({ pricePerKw: z.number().positive() });
 const generationPayload = z.object({
@@ -124,6 +134,12 @@ export type QuoteView = {
   leadId: string;
   ruleVersion: string;
   calculation: z.infer<typeof calculationSchema>;
+  survey?: {
+    usableRoofArea: number;
+    consumptionBasedKw: number | null;
+    roofLimitedKw: number | null;
+    recommendedKw: number | null;
+  };
 };
 export function quoteView(quote: any): QuoteView {
   const snapshot = quoteSnapshotSchema.parse(quote.snapshot);
@@ -134,30 +150,47 @@ export function quoteView(quote: any): QuoteView {
     leadId: quote.leadId,
     ruleVersion: snapshot.ruleVersion,
     calculation: snapshot.calculation,
+    survey: snapshot.survey,
   };
 }
 const includeLead = {
   assessment: true,
   quotes: { orderBy: { version: "desc" } as const, take: 1 },
   project: { include: { events: true } },
+  survey: true,
   createdBy: { select: { id: true, name: true } },
 };
+export function assessmentView(assessment: any) {
+  if (!assessment) return undefined;
+  return {
+    points: assessment.score,
+    band: assessment.band,
+    reasons: assessment.reasons,
+    nextAction: assessment.nextAction,
+    source: assessment.source,
+    model: assessment.model,
+    assessedAt: assessment.assessedAt,
+  };
+}
 const asLead = (l: any) => ({
   ...l,
   roofArea: l.roofArea == null ? null : Number(l.roofArea),
   monthlyUnits: l.monthlyUnits == null ? null : Number(l.monthlyUnits),
-  score: l.assessment
-    ? {
-        points: l.assessment.score,
-        band: l.assessment.band,
-        reasons: l.assessment.reasons,
-        nextAction: l.assessment.nextAction,
-        source: l.assessment.source,
-        model: l.assessment.model,
-        assessedAt: l.assessment.assessedAt,
-      }
-    : undefined,
+  survey: l.survey
+    ? { ...l.survey, usableRoofArea: Number(l.survey.usableRoofArea) }
+    : null,
+  score: assessmentView(l.assessment),
   recommendation: l.assessment?.recommendation,
+  preliminarySizing: sizing(
+    l.monthlyUnits == null ? null : Number(l.monthlyUnits),
+    l.roofArea == null ? null : Number(l.roofArea),
+  ),
+  surveyedSizing: l.survey
+    ? sizing(
+        l.monthlyUnits == null ? null : Number(l.monthlyUnits),
+        Number(l.survey.usableRoofArea),
+      )
+    : null,
   quote: l.quotes?.[0] ? quoteView(l.quotes[0]) : undefined,
   createdBy: l.createdBy ?? null,
 });
@@ -262,7 +295,22 @@ export async function createSalesLead(data: any, salesUserId: string) {
 }
 export async function persistQuote(leadId: string, kw: number) {
   return db.$transaction(async (tx) => {
-    const lead = await tx.lead.findUniqueOrThrow({ where: { id: leadId } });
+    const lead = await tx.lead.findUniqueOrThrow({
+      where: { id: leadId },
+      include: { survey: true },
+    });
+    if (!lead.survey)
+      throw new SurveyRequiredError(
+        "Record usable roof area in the sales survey before issuing a post-survey quote.",
+      );
+    const surveySizing = sizing(
+      lead.monthlyUnits == null ? null : Number(lead.monthlyUnits),
+      Number(lead.survey.usableRoofArea),
+    );
+    if (surveySizing.roofLimitedKw != null && kw > surveySizing.roofLimitedKw)
+      throw new SurveyCapacityError(
+        `Quote capacity exceeds the surveyed roof limit of ${surveySizing.roofLimitedKw} kW.`,
+      );
     const version = (await tx.quote.count({ where: { leadId } })) + 1;
     const issuedAt = new Date();
     const active = await effectiveRules(tx, issuedAt);
@@ -277,6 +325,10 @@ export async function persistQuote(leadId: string, kw: number) {
       ruleVersion: active.rules.version,
       ruleEffectiveDates: active.effectiveDates,
       calculation,
+      survey: {
+        usableRoofArea: Number(lead.survey.usableRoofArea),
+        ...surveySizing,
+      },
     };
     const quote = await tx.quote.create({
       data: {

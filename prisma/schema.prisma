@@ -62,10 +62,21 @@ model Lead {
  isSample Boolean @default(false)
  sampleScenario String?
  assessment QualificationAssessment?
+ survey Survey?
  documents BillDocument[]
  quotes Quote[]
  project Project?
  audits AuditEvent[]
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+}
+model Survey {
+ id String @id @default(cuid())
+ leadId String @unique
+ lead Lead @relation(fields:[leadId],references:[id],onDelete:Cascade)
+ usableRoofArea Decimal
+ findings String?
+ surveyedById String
  createdAt DateTime @default(now())
  updatedAt DateTime @updatedAt
 }

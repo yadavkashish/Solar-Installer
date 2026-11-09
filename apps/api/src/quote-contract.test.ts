@@ -40,6 +40,25 @@ describe("saved quote response", () => {
       }),
     ).toMatchObject({ id: "Q-test", calculation: { capacityKw: 3 } });
   });
+  it("keeps post-survey sizing in a new issued snapshot", () => {
+    expect(
+      quoteView({
+        id: "Q-survey",
+        leadId: "LD-test",
+        version: 2,
+        createdAt: new Date(),
+        snapshot: {
+          ...snapshot,
+          survey: {
+            usableRoofArea: 22,
+            consumptionBasedKw: 3,
+            roofLimitedKw: 2,
+            recommendedKw: 2,
+          },
+        },
+      }).survey,
+    ).toMatchObject({ usableRoofArea: 22, recommendedKw: 2 });
+  });
   it("rejects a malformed persisted snapshot instead of returning undefined calculation", () => {
     expect(() =>
       quoteView({

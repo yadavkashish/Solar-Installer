@@ -25,6 +25,20 @@
   padding-left: 10px;
 }
 
+.survey-form {
+  display: grid;
+  gap: 12px;
+}
+
+.survey-form textarea {
+  min-height: 88px;
+  resize: vertical;
+  border: 1px solid #cad6cc;
+  border-radius: 7px;
+  padding: 10px;
+  font: inherit;
+}
+
 @media (max-width: 700px) {
   .pipeline-controls {
     grid-template-columns: 1fr;

@@ -116,20 +116,31 @@ export function shortCallExplanation(lead: {
     ? `Short call recommended because ${reasons.join(" and ")}. This follow-up guardrail applies even when the score band is high.`
     : null;
 }
+export function sizing(units: number | null, roof: number | null) {
+  const consumptionBasedKw = units
+    ? Math.max(1, Math.round(((units * 12) / 1400) * 2) / 2)
+    : null;
+  const roofLimitedKw =
+    roof == null ? null : Math.max(0.5, Math.floor((roof / 10) * 2) / 2);
+  const recommendedKw =
+    consumptionBasedKw == null
+      ? null
+      : roofLimitedKw == null
+        ? consumptionBasedKw
+        : Math.min(consumptionBasedKw, roofLimitedKw);
+  return { consumptionBasedKw, roofLimitedKw, recommendedKw };
+}
 export function recommend(units: number | null, roof: number | null) {
-  if (!units)
+  const { consumptionBasedKw, roofLimitedKw, recommendedKw } = sizing(units, roof);
+  if (consumptionBasedKw == null)
     return { kw: null, note: "Confirm average monthly units before sizing." };
-  let kw = Math.max(1, Math.round(((units * 12) / 1400) * 2) / 2);
-  if (roof != null) {
-    const max = Math.floor(roof / 10) / 2;
-    if (max < kw)
-      return {
-        kw: Math.max(0.5, max),
-        note: "Roof constraint flagged. Demo assumption: 10 m² per kW; confirm during survey.",
-      };
-  }
+  if (roofLimitedKw != null && roofLimitedKw < consumptionBasedKw)
+    return {
+      kw: recommendedKw,
+      note: "Roof constraint flagged. Demo assumption: 10 m² per kW; confirm during survey.",
+    };
   return {
-    kw,
+    kw: recommendedKw,
     note: "Preliminary size from 1,400 units/kW/year. Survey may change it.",
   };
 }
